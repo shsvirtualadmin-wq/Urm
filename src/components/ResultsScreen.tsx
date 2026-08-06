@@ -20,6 +20,8 @@ import {
   GraduationCap,
   Sparkles,
   HelpCircle,
+  Home,
+  ChevronLeft,
 } from 'lucide-react';
 
 import { MCQContext } from './StudyBuddyModal';
@@ -146,7 +148,20 @@ export const ResultsScreen: React.FC<ResultsScreenProps> = ({
       <div className="relative z-10 flex flex-col h-full gap-4">
         <div className="flex items-center justify-between pb-2 border-b border-black/5 dark:border-white/10">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-[#0A0A0A] border-2 border-[#F2B90C] rounded-2xl p-1 flex items-center justify-center shadow-md overflow-hidden shrink-0">
+            {onBackToHome && (
+              <button
+                onClick={() => {
+                  triggerHaptic(HAPTIC_PATTERNS.light);
+                  onBackToHome();
+                }}
+                className="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-full bg-slate-100 dark:bg-white/10 text-slate-800 dark:text-white hover:bg-[#F2B90C] hover:text-[#0A0A0A] transition-all cursor-pointer border border-black/5 dark:border-white/10 shrink-0"
+                title="Return to Student Dashboard"
+              >
+                <ChevronLeft className="w-3.5 h-3.5 stroke-[2.5]" />
+                <span>Dashboard</span>
+              </button>
+            )}
+            <div className="w-9 h-9 sm:w-10 sm:h-10 bg-[#0A0A0A] border-2 border-[#F2B90C] rounded-2xl p-1 flex items-center justify-center shadow-md overflow-hidden shrink-0">
               <img
                 src={logoUrl || "/logo.png"}
                 alt="Boardly Logo"
@@ -249,19 +264,32 @@ export const ResultsScreen: React.FC<ResultsScreenProps> = ({
 
         {/* Primary Action Row */}
         <div className="flex flex-col sm:flex-row gap-2.5">
+          {onBackToHome && (
+            <button
+              onClick={() => {
+                triggerHaptic(HAPTIC_PATTERNS.medium);
+                onBackToHome();
+              }}
+              className="flex-1 bg-[#F2B90C] hover:bg-[#E0AB00] text-[#0A0A0A] font-extrabold py-3.5 px-6 rounded-full transition-all active:scale-98 shadow-md flex items-center justify-center gap-2 text-sm cursor-pointer"
+            >
+              <Home className="w-4 h-4 text-[#0A0A0A]" />
+              <span>Return to Dashboard</span>
+            </button>
+          )}
+
           <button
             onClick={onTakeAnother}
             className="flex-1 bg-slate-900 hover:bg-slate-800 dark:bg-[#0A0A0A] dark:hover:bg-[#1A1A1A] text-white border border-slate-900 dark:border-white/10 font-extrabold py-3.5 px-6 rounded-full transition-all active:scale-98 shadow-md flex items-center justify-center gap-2 text-sm cursor-pointer"
           >
             <RotateCcw className="w-4 h-4 text-[#F2B90C]" />
-            <span>Take Another Practice Test</span>
+            <span>Take Another Test</span>
           </button>
 
           <button
             onClick={() => setShowReview(!showReview)}
             className="bg-white dark:bg-[#151515] border border-black/10 dark:border-white/10 text-[#0A0A0A] dark:text-white font-bold py-3.5 px-5 rounded-full hover:border-[#F2B90C] transition-all flex items-center justify-center gap-2 text-sm cursor-pointer shadow-sm"
           >
-            <span>{showReview ? 'Hide Answer Review' : 'Review Answer Key'}</span>
+            <span>{showReview ? 'Hide Review' : 'Review Answers'}</span>
             {showReview ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
           </button>
         </div>

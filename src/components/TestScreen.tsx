@@ -230,15 +230,15 @@ export const TestScreen: React.FC<TestScreenProps> = React.memo(({
               {onExitTest && (
                 <button
                   onClick={() => {
-                    if (window.confirm('Are you sure you want to exit this test? Your current progress will be lost.')) {
+                    if (window.confirm('Are you sure you want to exit this test and return to the dashboard? Your current progress will be lost.')) {
                       onExitTest();
                     }
                   }}
-                  className="flex items-center gap-1 text-xs font-bold px-3 py-1 rounded-full bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 hover:bg-rose-500 hover:text-white transition-all cursor-pointer mr-1"
-                  title="Exit Test"
+                  className="flex items-center gap-1.5 text-xs font-bold px-3.5 py-1.5 rounded-full bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 hover:bg-rose-500 hover:text-white transition-all cursor-pointer mr-1 shadow-xs"
+                  title="Exit Test & Return to Dashboard"
                 >
                   <ChevronLeft className="w-3.5 h-3.5 stroke-[2.5]" />
-                  <span>Exit</span>
+                  <span>Exit to Dashboard</span>
                 </button>
               )}
               <span className="text-xs font-bold font-['Space_Grotesk'] text-[#0A0A0A] dark:text-[#F2B90C] bg-[#F2B90C]/20 border border-[#F2B90C]/40 px-3.5 py-1 rounded-full">
@@ -547,12 +547,27 @@ export const TestScreen: React.FC<TestScreenProps> = React.memo(({
               })}
             </div>
 
-            <button
-              onClick={() => setShowNavGrid(false)}
-              className="w-full bg-[#0A0A0A] text-white font-bold text-xs py-3 rounded-full cursor-pointer hover:bg-[#1A1A1A]"
-            >
-              Close
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowNavGrid(false)}
+                className="flex-1 bg-black/5 dark:bg-white/10 text-[#0A0A0A] dark:text-white font-bold text-xs py-3 rounded-full cursor-pointer hover:bg-black/10 dark:hover:bg-white/20 transition-all"
+              >
+                Close
+              </button>
+              {onExitTest && (
+                <button
+                  onClick={() => {
+                    setShowNavGrid(false);
+                    if (window.confirm('Are you sure you want to exit this test and return to the dashboard? Your current progress will be lost.')) {
+                      onExitTest();
+                    }
+                  }}
+                  className="flex-1 bg-rose-500/10 hover:bg-rose-500 text-rose-600 hover:text-white font-bold text-xs py-3 rounded-full cursor-pointer transition-all border border-rose-500/20"
+                >
+                  Exit to Dashboard
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}

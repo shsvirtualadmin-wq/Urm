@@ -1168,13 +1168,20 @@ export function App() {
     }
   };
 
+  const confirmExitTestIfActive = (): boolean => {
+    if (screen === 'test') {
+      return window.confirm('Are you sure you want to exit this test? Your active test progress will be lost.');
+    }
+    return true;
+  };
+
   const handleGlobalBackInternal = () => {
     const scr = screenRef.current;
     const isRegistered = currentUserRef.current && isRegisteredStudentRef.current && !isAdminRef.current;
 
     switch (scr) {
       case 'grades_flow':
-        setScreen('intro');
+        setScreen(isRegistered ? 'dashboard' : 'intro');
         break;
       case 'group':
         setScreen('grades_flow');
@@ -1192,8 +1199,8 @@ export function App() {
         setScreen(authBackScreenRef.current || 'grades_flow');
         break;
       case 'test':
-        if (window.confirm('Are you sure you want to exit this test? Progress will be lost.')) {
-          setScreen('duration');
+        if (window.confirm('Are you sure you want to exit this test and return to the dashboard? Progress will be lost.')) {
+          setScreen(currentUserRef.current ? 'dashboard' : 'intro');
         }
         break;
       case 'results':
@@ -1702,6 +1709,7 @@ export function App() {
         onTrackClick={() => setShowLmsModal(true)}
         onGoBack={handleGlobalBack}
         onGoHome={() => {
+          if (!confirmExitTestIfActive()) return;
           if (currentUser) {
             setScreen('dashboard');
           } else {
@@ -1714,8 +1722,12 @@ export function App() {
         historyCount={history.length}
         onOpenHistory={() => setShowHistoryModal(true)}
         onOpenLmsPortal={() => setShowLmsModal(true)}
-        onStartFree={() => setScreen('grades_flow')}
+        onStartFree={() => {
+          if (!confirmExitTestIfActive()) return;
+          setScreen('grades_flow');
+        }}
         onSignOut={async () => {
+          if (!confirmExitTestIfActive()) return;
           await supabase.auth.signOut();
           clearProfileCache();
           try {
@@ -1727,16 +1739,24 @@ export function App() {
           setScreen('intro');
         }}
         onNavigateDashboard={() => {
+          if (!confirmExitTestIfActive()) return;
           if (currentUser && isAdminEmail(currentUser.email)) {
             setScreen('admin');
           } else {
             setScreen('dashboard');
           }
         }}
-        onNavigatePractice={() => setScreen('grades_flow')}
+        onNavigatePractice={() => {
+          if (!confirmExitTestIfActive()) return;
+          setScreen('grades_flow');
+        }}
         onOpenStudyBuddy={() => setShowStudyBuddy(true)}
-        onNavigateSubscription={() => setScreen('plan_selection')}
+        onNavigateSubscription={() => {
+          if (!confirmExitTestIfActive()) return;
+          setScreen('plan_selection');
+        }}
         onNavigateAdmin={(tab) => {
+          if (!confirmExitTestIfActive()) return;
           if (tab) {
             setAdminTab(tab);
           } else {
@@ -2036,7 +2056,13 @@ export function App() {
                     }}
                     currentUser={currentUser}
                     onFinishTest={handleFinishTest}
-                    onExitTest={() => setScreen('duration')}
+                    onExitTest={() => {
+                      if (currentUser) {
+                        setScreen('dashboard');
+                      } else {
+                        setScreen('intro');
+                      }
+                    }}
                     onExplainMcq={(mcqCtx) => {
                       setStudyBuddyContext(mcqCtx);
                       setShowStudyBuddy(true);
@@ -2047,9 +2073,15 @@ export function App() {
                   <ResultsScreen
                     result={testResult}
                     currentUser={currentUser}
-                    onTakeAnother={() => setScreen('plan_selection')}
+                    onTakeAnother={() => setScreen('grades_flow')}
                     onOpenPrintModal={() => setShowPrintModal(true)}
-                    onBackToHome={() => setScreen('intro')}
+                    onBackToHome={() => {
+                      if (currentUser) {
+                        setScreen('dashboard');
+                      } else {
+                        setScreen('intro');
+                      }
+                    }}
                     onExplainMcq={(mcqCtx) => {
                       setStudyBuddyContext(mcqCtx);
                       setShowStudyBuddy(true);
