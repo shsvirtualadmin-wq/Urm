@@ -513,14 +513,21 @@ export const IntroScreen: React.FC<IntroScreenProps> = React.memo(({
     };
   }, []);
 
-  // Handle scroll detection for back-to-top button with passive listener & state guard
+  // Handle scroll detection for back-to-top button with RAF ticking & state guard
   useEffect(() => {
     let lastShown = false;
+    let ticking = false;
     const handleScroll = () => {
-      const isPast = window.scrollY > 250;
-      if (isPast !== lastShown) {
-        lastShown = isPast;
-        setShowScrollTop(isPast);
+      if (!ticking) {
+        ticking = true;
+        requestAnimationFrame(() => {
+          const isPast = window.scrollY > 250;
+          if (isPast !== lastShown) {
+            lastShown = isPast;
+            setShowScrollTop(isPast);
+          }
+          ticking = false;
+        });
       }
     };
     window.addEventListener('scroll', handleScroll, { passive: true });

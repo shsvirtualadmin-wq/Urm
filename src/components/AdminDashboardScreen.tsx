@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { UserAvatar } from './UserAvatar';
 import { StudyBuddyFormattedMessage } from './StudyBuddyFormattedMessage';
 import {
   supabase,
@@ -1605,9 +1606,7 @@ CREATE POLICY "Admin full access study_buddy_history" ON public.study_buddy_hist
                       {/* Student Card Top Bar */}
                       <div className="flex items-start justify-between gap-2 min-w-0">
                         <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                          <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-[#007AFF] to-indigo-600 text-white font-black text-sm flex items-center justify-center shrink-0 shadow-md">
-                            {initials}
-                          </div>
+                          <UserAvatar profile={student} size="md" shape="square" className="shadow-md" />
                           <div className="min-w-0 flex-1">
                             <h3 className="font-extrabold text-sm text-slate-900 dark:text-white truncate">
                               {student.name}

@@ -52,6 +52,8 @@
     min-height: 100vh;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    -webkit-overflow-scrolling: touch;
+    scroll-behavior: smooth;
   }
 
   [data-theme="dark"] body,

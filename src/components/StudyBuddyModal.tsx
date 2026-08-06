@@ -291,13 +291,13 @@ export const StudyBuddyModal: React.FC<StudyBuddyModalProps> = ({
     }
   };
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  const scrollToBottom = (instant = false) => {
+    messagesEndRef.current?.scrollIntoView({ behavior: instant ? 'auto' : 'smooth' });
   };
 
   useEffect(() => {
     if (isOpen) {
-      scrollToBottom();
+      scrollToBottom(isStreaming);
     }
   }, [messages, isOpen, isStreaming]);
 
@@ -479,18 +479,36 @@ export const StudyBuddyModal: React.FC<StudyBuddyModalProps> = ({
         }
       };
 
-      let rafPending = false;
+      let lastUpdateMs = 0;
+      let pendingText = '';
+      let updateTimeout: ReturnType<typeof setTimeout> | null = null;
+
+      const applyStreamUpdate = (textToApply: string) => {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === modelMessageId ? { ...m, text: textToApply } : m
+          )
+        );
+        lastUpdateMs = Date.now();
+      };
+
       const scheduleStreamUpdate = (latestText: string) => {
-        if (rafPending) return;
-        rafPending = true;
-        requestAnimationFrame(() => {
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === modelMessageId ? { ...m, text: latestText } : m
-            )
-          );
-          rafPending = false;
-        });
+        pendingText = latestText;
+        const now = Date.now();
+        if (now - lastUpdateMs >= 35) {
+          if (updateTimeout) {
+            clearTimeout(updateTimeout);
+            updateTimeout = null;
+          }
+          applyStreamUpdate(pendingText);
+        } else if (!updateTimeout) {
+          updateTimeout = setTimeout(() => {
+            updateTimeout = null;
+            if (pendingText) {
+              applyStreamUpdate(pendingText);
+            }
+          }, 35 - (now - lastUpdateMs));
+        }
       };
 
       while (true) {
