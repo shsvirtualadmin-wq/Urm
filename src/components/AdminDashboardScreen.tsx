@@ -1043,7 +1043,7 @@ CREATE POLICY "Admin full access study_buddy_history" ON public.study_buddy_hist
         </div>
         <h2 className="text-2xl font-black text-slate-900 dark:text-white mb-2 tracking-tight">Access Restricted</h2>
         <p className="text-xs text-slate-500 dark:text-[#8E8E93] max-w-sm mx-auto mb-4 leading-relaxed font-medium">
-          The Admin Management Panel is strictly restricted to <strong className="text-slate-800 dark:text-white font-mono">shsvirtualadmin@gmail.com</strong>.
+          The Admin Management Panel is strictly restricted to authorized administrator accounts.
         </p>
         <div className="bg-slate-100 dark:bg-[#1C1C1E] border border-slate-200 dark:border-white/10 rounded-2xl p-3 max-w-sm mx-auto mb-6 text-xs text-slate-600 dark:text-[#8E8E93] font-mono">
           <span>Active Logged-In Account: </span>

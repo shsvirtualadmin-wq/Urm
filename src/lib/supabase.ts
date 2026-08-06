@@ -21,6 +21,7 @@ export const supabase = createClient(
 
 export const ADMIN_EMAILS = [
   'shsvirtualadmin@gmail.com',
+  'dj.khadijajameel19@gmail.com',
 ];
 
 export function isAdminEmail(email?: string | null): boolean {
@@ -1311,7 +1312,7 @@ export async function saveStudentRegistration(
     drive_file_url?: string;
   }
 ): Promise<StudentProfile> {
-  const isAdmin = Boolean(data.email && data.email.trim().toLowerCase() === 'shsvirtualadmin@gmail.com');
+  const isAdmin = Boolean(data.email && isAdminEmail(data.email));
 
   // If student is already registered, prevent changing grade & stream unless admin
   try {

@@ -65,7 +65,10 @@ function getAuthClient(req: express.Request | null) {
   });
 }
 
-const ADMIN_EMAILS = ["shsvirtualadmin@gmail.com"];
+const ADMIN_EMAILS = [
+  "shsvirtualadmin@gmail.com",
+  "dj.khadijajameel19@gmail.com"
+];
 function isAdminEmail(email?: string | null): boolean {
   if (!email) return false;
   const normalized = email.trim().toLowerCase();

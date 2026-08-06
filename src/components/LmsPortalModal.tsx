@@ -4,6 +4,7 @@ import {
   supabase,
   fetchStudentProfileFromSupabase,
   syncUserProfile,
+  isAdminEmail,
   User,
   StudentProfile,
 } from '../lib/supabase';
@@ -117,7 +118,7 @@ export const LmsPortalModal: React.FC<LmsPortalModalProps> = ({
     setUserProfile(null);
   };
 
-  const isAdmin = Boolean(currentUser?.email && currentUser.email.trim().toLowerCase() === 'shsvirtualadmin@gmail.com');
+  const isAdmin = Boolean(currentUser?.email && isAdminEmail(currentUser.email));
   const hasGradeAndStream = Boolean(
     userProfile?.grade &&
     userProfile?.grade.trim() &&

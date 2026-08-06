@@ -14,6 +14,7 @@ function getSupabaseAdminClient(env: Record<string, string | undefined>) {
 
 const ADMIN_EMAILS = [
   "shsvirtualadmin@gmail.com",
+  "dj.khadijajameel19@gmail.com",
 ];
 
 function isAdminEmail(email?: string | null): boolean {

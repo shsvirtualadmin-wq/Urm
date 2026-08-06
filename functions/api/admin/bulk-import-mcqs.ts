@@ -26,7 +26,8 @@ export const onRequestPost = async (context: PagesContext) => {
     const body = await request.json() as any;
     const { requesterEmail, mcqs } = body || {};
 
-    const isAdmin = Boolean(requesterEmail && requesterEmail.trim().toLowerCase() === "shsvirtualadmin@gmail.com");
+    const ADMIN_EMAILS = ["shsvirtualadmin@gmail.com", "dj.khadijajameel19@gmail.com"];
+    const isAdmin = Boolean(requesterEmail && ADMIN_EMAILS.includes(requesterEmail.trim().toLowerCase()));
 
     if (!isAdmin) {
       return new Response(

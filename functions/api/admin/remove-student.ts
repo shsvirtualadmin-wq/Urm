@@ -36,7 +36,8 @@ const handleRemoveStudent = async (context: PagesContext) => {
     const studentId = body.studentId || urlParams.get("studentId") || "";
     const studentEmail = body.studentEmail || urlParams.get("studentEmail") || "";
 
-    const isAdmin = Boolean(requesterEmail && requesterEmail.trim().toLowerCase() === "shsvirtualadmin@gmail.com");
+    const ADMIN_EMAILS = ["shsvirtualadmin@gmail.com", "dj.khadijajameel19@gmail.com"];
+    const isAdmin = Boolean(requesterEmail && ADMIN_EMAILS.includes(requesterEmail.trim().toLowerCase()));
 
     if (!isAdmin) {
       return new Response(

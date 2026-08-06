@@ -145,7 +145,8 @@ export const onRequestPost = async (context: PagesContext) => {
 
   const todayStr = new Date().toISOString().split('T')[0]; // Format: YYYY-MM-DD
   const MAX_DAILY_LIMIT = 5;
-  const isAdmin = Boolean(userEmail && userEmail.trim().toLowerCase() === "shsvirtualadmin@gmail.com");
+  const ADMIN_EMAILS = ["shsvirtualadmin@gmail.com", "dj.khadijajameel19@gmail.com"];
+  const isAdmin = Boolean(userEmail && ADMIN_EMAILS.includes(userEmail.trim().toLowerCase()));
 
   let currentDailyCount = 0;
   let existingUsageRecord: { id: string; count: number } | null = null;
