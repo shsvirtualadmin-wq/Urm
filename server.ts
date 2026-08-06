@@ -134,7 +134,7 @@ async function checkStudentIsPro(userId: string, userEmail?: string): Promise<bo
   try {
     let query = supabaseServer
       .from("students")
-      .select("is_pro, package_name, payment_status, access_expires, updated_at, created_at");
+      .select("is_pro, package_name, payment_status, access_expires, subscribed_plans, updated_at, created_at");
 
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     if (uuidRegex.test(userId)) {
@@ -147,15 +147,14 @@ async function checkStudentIsPro(userId: string, userEmail?: string): Promise<bo
 
     const { data: stData } = await query.maybeSingle();
     if (stData) {
-      const rawIsPro = Boolean(stData.is_pro) && stData.payment_status !== "Free Plan";
+      const hasProPlan = Array.isArray(stData.subscribed_plans) && stData.subscribed_plans.some((p: any) => p && String(p).toLowerCase() !== 'free');
+      const rawIsPro = Boolean(stData.is_pro) || stData.payment_status === "Verified & Paid" || hasProPlan;
       if (rawIsPro) {
         if (stData.access_expires) {
           const expTime = new Date(stData.access_expires).getTime();
           return !isNaN(expTime) && expTime > Date.now();
-        } else if (stData.updated_at || stData.created_at) {
-          const grantTime = new Date(stData.updated_at || stData.created_at).getTime();
-          return !isNaN(grantTime) && (grantTime + 30 * 24 * 3600 * 1000) > Date.now();
         }
+        return true;
       }
     }
   } catch (e) {
@@ -1991,7 +1990,10 @@ async function startServer() {
         });
       }
 
-      // Strictly lock classNum and group server-side to student's saved record
+      // Query student Pro status BEFORE checking track limits
+      const studentIsPro = isAdmin ? true : await checkStudentIsPro(userId, userEmail);
+
+      // Strictly lock classNum and group server-side to student's saved record ONLY for free users
       const savedGrade = studentRecord.grade || "";
       const savedStream = studentRecord.stream || "";
 
@@ -2008,18 +2010,23 @@ async function startServer() {
       else if (savedStream.includes("Pre-Engineering")) lockedGroup = "Pre-Engineering";
       else if (savedStream.includes("ICS")) lockedGroup = "ICS";
 
-      // If student explicitly requested a different class or stream, reject server-side with 403
-      if (classNum && Number(classNum) !== lockedClassNum) {
+      let isAssignedClassMatch = false;
+      if (Array.isArray(studentRecord.assigned_classes)) {
+        isAssignedClassMatch = studentRecord.assigned_classes.some((ac: any) => String(ac).includes(String(classNum)));
+      }
+
+      // If student is not Pro and class is not assigned, reject with 403
+      if (!studentIsPro && !isAssignedClassMatch && classNum && Number(classNum) !== lockedClassNum) {
         return res.status(403).json({
           success: false,
           locked: true,
-          error: `Class & Stream Locked: Your registration is locked to Class ${lockedClassNum} (${savedStream}). You cannot request questions for Class ${classNum}.`,
-          message: `Class & Stream Locked: Your registration is locked to Class ${lockedClassNum} (${savedStream}). You cannot request questions for Class ${classNum}.`
+          error: `Class & Stream Locked: Your registration is locked to Class ${lockedClassNum} (${savedStream}). Upgrade to Pro to unlock access to all classes.`,
+          message: `Class & Stream Locked: Your registration is locked to Class ${lockedClassNum} (${savedStream}). Upgrade to Pro to unlock access to all classes.`
         });
       }
 
-      activeClassNum = lockedClassNum;
-      activeGroup = lockedGroup;
+      activeClassNum = studentIsPro ? (Number(classNum) || lockedClassNum) : lockedClassNum;
+      activeGroup = studentIsPro ? (group ? String(group) : lockedGroup) : lockedGroup;
     }
 
     // Query student Pro status and monthly test usage BEFORE cache lookups or AI generation

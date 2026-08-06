@@ -110,7 +110,7 @@ export const PaymentRequiredScreen: React.FC<PaymentRequiredScreenProps> = ({
               <span>Proof Submitted & Under Review</span>
             </div>
             <p className="text-[11px] text-slate-700 dark:text-amber-200/90 leading-relaxed font-medium">
-              We received your payment proof! Our admin team is reviewing your transaction screenshot. Your learning dashboard will unlock automatically once approved (usually within <strong>2–4 hours</strong>).
+              We received your payment details! Our admin team is reviewing your WhatsApp payment request. Your learning dashboard will unlock automatically once approved (usually within <strong>2–4 hours</strong>).
             </p>
           </div>
         ) : isRejected ? (
@@ -120,7 +120,7 @@ export const PaymentRequiredScreen: React.FC<PaymentRequiredScreenProps> = ({
               <span>Payment Proof Rejected</span>
             </div>
             <p className="text-[11px] text-slate-700 dark:text-rose-200/90 leading-relaxed font-medium">
-              Your payment submission was not approved. Please re-upload a clear screenshot showing your transaction reference ID and payment amount.
+              Your payment submission was not approved. Please re-submit your payment details with your valid transaction reference ID via WhatsApp (+923222314436).
             </p>
           </div>
         ) : (
@@ -183,7 +183,7 @@ export const PaymentRequiredScreen: React.FC<PaymentRequiredScreenProps> = ({
             className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs sm:text-sm py-3.5 px-6 rounded-full transition-all shadow-lg hover:shadow-emerald-500/25 active:scale-95 cursor-pointer flex items-center justify-center gap-2"
           >
             <CreditCard className="w-4 h-4" />
-            <span>{isPending ? 'Update / Re-submit Payment Proof' : 'Upload Payment Screenshot'}</span>
+            <span>{isPending ? 'Update Payment Details via WhatsApp' : 'Verify Payment via WhatsApp (+923222314436)'}</span>
             <ChevronRight className="w-4 h-4 ml-auto" />
           </button>
 

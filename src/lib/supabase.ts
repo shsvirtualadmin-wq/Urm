@@ -367,6 +367,12 @@ export function isTrackAllowedForUser(
   if (!profile) return false;
   if (targetClass === undefined || targetClass === null) return true;
 
+  // Pro users or users with verified payments have full access to all tracks
+  const hasProPlan = Array.isArray(profile.subscribed_plans) && profile.subscribed_plans.some(p => p && String(p).toLowerCase() !== 'free');
+  if (profile.is_pro || profile.payment_status === 'Verified & Paid' || hasProPlan) {
+    return true;
+  }
+
   const { allowedClasses } = parseAssignedTrack(profile.grade, profile.stream, profile.assigned_classes);
 
   const normTarget = typeof targetClass === 'number' ? targetClass : String(targetClass).trim().toUpperCase();
@@ -413,7 +419,7 @@ export function evaluateStudentAccess(
       resetDateStr: fallbackReset,
       assignedTrack,
       assignedStream,
-      allowedClasses,
+      allowedClasses: [9, 10, 11, 12, 'MDCAT', 'TCAT'],
       isTrackAllowed: () => true,
     };
   }
@@ -438,15 +444,17 @@ export function evaluateStudentAccess(
     };
   }
 
-  // 1. Check raw Pro status and 30-day expiration date
-  let rawIsPro = Boolean(profile.is_pro);
-  if (profile.payment_status === 'Free Plan' || (profile.package_name && profile.package_name.toLowerCase().includes('free'))) {
+  // 1. Check raw Pro status & expiration
+  const hasProPlan = Array.isArray(profile.subscribed_plans) && profile.subscribed_plans.some(p => p && String(p).toLowerCase() !== 'free');
+  let rawIsPro = Boolean(profile.is_pro) || profile.payment_status === 'Verified & Paid' || hasProPlan;
+
+  if (!profile.is_pro && profile.payment_status === 'Free Plan' && !hasProPlan) {
     rawIsPro = false;
   }
 
   let isPro = rawIsPro;
   let isProExpired = false;
-  let daysRemaining = 0;
+  let daysRemaining = 365;
   let expiresDateStr: string | null = profile.access_expires || null;
 
   if (rawIsPro) {
@@ -455,7 +463,6 @@ export function evaluateStudentAccess(
       if (!isNaN(expTime)) {
         const now = Date.now();
         if (expTime <= now) {
-          // PRO HAS EXPIRED (30 days passed)
           isPro = false;
           isProExpired = true;
           daysRemaining = 0;
@@ -464,32 +471,22 @@ export function evaluateStudentAccess(
           daysRemaining = Math.max(1, Math.ceil((expTime - now) / (1000 * 60 * 60 * 24)));
         }
       }
-    } else if (profile.updated_at || profile.created_at) {
-      const grantTime = new Date(profile.updated_at || profile.created_at || '').getTime();
-      if (!isNaN(grantTime)) {
-        const expTime = grantTime + 30 * 24 * 3600 * 1000;
-        expiresDateStr = new Date(expTime).toISOString();
-        const now = Date.now();
-        if (expTime <= now) {
-          isPro = false;
-          isProExpired = true;
-          daysRemaining = 0;
-        } else {
-          isPro = true;
-          daysRemaining = Math.max(1, Math.ceil((expTime - now) / (1000 * 60 * 60 * 24)));
-        }
-      }
+    } else {
+      isPro = true;
+      daysRemaining = 365;
     }
   }
 
-  // 2. FREE PLAN: Max 2 tests per calendar month
-  //    PRO PLAN: Unlimited tests (999999)
+  // 2. Test Limit: Pro = Unlimited, Free = 2/month
   const monthlyTestLimit = isPro ? 999999 : 2;
   const remainingTests = isPro ? 999999 : Math.max(0, 2 - monthlyTestsTaken);
   const isMonthlyLimitReached = !isPro && monthlyTestsTaken >= 2;
 
-  // 3. Track Access: Strictly limited to Class/Grade track regardless of plan
-  const { assignedTrack, assignedStream, allowedClasses } = parseAssignedTrack(profile.grade, profile.stream, profile.assigned_classes);
+  // 3. Track Access: Unlocked for Pro users across all tracks
+  const parsedTrack = parseAssignedTrack(profile.grade, profile.stream, profile.assigned_classes);
+  const assignedTrack = parsedTrack.assignedTrack;
+  const assignedStream = parsedTrack.assignedStream;
+  const allowedClasses: (BoardClass | string)[] = isPro ? ([9, 10, 11, 12, 'MDCAT', 'TCAT'] as (BoardClass | string)[]) : parsedTrack.allowedClasses;
 
   let defaultPkgName = 'Free Plan';
   if (isPro) {

@@ -378,15 +378,17 @@ export function App() {
   const isRegisteredStudent = isAdmin || Boolean(userProfile?.is_registered) || hasGradeAndStream;
 
   // Access Gating Rule: Existing students (created before rule deployment date) OR admins
-  // OR students whose payment_status is 'Verified & Paid' are EXEMPT from payment gating and keep full access as normal!
-  const isExplicitlyFreeStudent = userProfile?.is_pro === false || userProfile?.payment_status === 'Free Plan' || (userProfile?.package_name && userProfile.package_name.toLowerCase().includes('free'));
-  const isExistingStudentUnaffected = !isExplicitlyFreeStudent && Boolean(
-    userProfile?.requires_payment === false ||
-    userProfile?.payment_status === 'Verified & Paid' ||
-    userProfile?.is_pro === true ||
-    (userProfile?.created_at && isStudentExistingBeforeRule(userProfile.created_at))
+  // OR students whose payment_status is 'Verified & Paid' or is_pro is true are EXEMPT from payment gating and keep full access!
+  const hasSubscribedProPlan = Array.isArray(userProfile?.subscribed_plans) && userProfile.subscribed_plans.some(p => p && String(p).toLowerCase() !== 'free');
+  const isStudentProOrPaid = userProfile?.is_pro === true || userProfile?.payment_status === 'Verified & Paid' || hasSubscribedProPlan;
+  const isExplicitlyFreeStudent = !isStudentProOrPaid && (userProfile?.is_pro === false || userProfile?.payment_status === 'Free Plan');
+  const isExistingStudentUnaffected = isStudentProOrPaid || Boolean(
+    !isExplicitlyFreeStudent && (
+      userProfile?.requires_payment === false ||
+      (userProfile?.created_at && isStudentExistingBeforeRule(userProfile.created_at))
+    )
   );
-  const isPaymentApprovedOrExempt = isAdmin || isExistingStudentUnaffected;
+  const isPaymentApprovedOrExempt = isAdmin || isStudentProOrPaid || isExistingStudentUnaffected;
 
   // Initial default selectedClass & selectedGroup setup from student's profile grade & stream
   useEffect(() => {
