@@ -559,7 +559,8 @@ export function sanitizeStudentForDb(data: Record<string, any>): Record<string, 
   const allowedColumns = [
     'id', 'name', 'email', 'phone', 'grade', 'stream', 'is_registered',
     'subjects', 'status', 'sign_up_method', 'package_name', 'payment_status',
-    'requires_payment', 'is_pro', 'subscribed_plans', 'created_at', 'updated_at'
+    'requires_payment', 'is_pro', 'subscribed_plans', 'created_at', 'updated_at',
+    'dream_university', 'target_university'
   ];
   const clean: Record<string, any> = {};
   for (const col of allowedColumns) {
@@ -1408,37 +1409,106 @@ export async function saveStudentTargetUniversity(
   let updatedProfile: StudentProfile | null = null;
   try {
     const existingStr = localStorage.getItem(`boardly_profile_${userId}`);
+    let existing: StudentProfile | null = null;
     if (existingStr) {
-      const existing = JSON.parse(existingStr);
+      try { existing = JSON.parse(existingStr); } catch {}
+    }
+    if (!existing) {
+      const mem = profileMemoryCache.get(userId);
+      if (mem) existing = mem.profile;
+    }
+
+    if (existing) {
       updatedProfile = {
         ...existing,
         dream_university: uni,
         target_university: uni,
         updated_at: new Date().toISOString(),
       };
-      localStorage.setItem(`boardly_profile_${userId}`, JSON.stringify(updatedProfile));
-      localStorage.setItem('boardly_cached_profile', JSON.stringify(updatedProfile));
+    } else {
+      updatedProfile = {
+        id: userId,
+        name: '',
+        email: '',
+        phone: '',
+        grade: '',
+        stream: '',
+        subjects: [],
+        dream_university: uni,
+        target_university: uni,
+        sign_up_method: 'Google',
+        status: 'active',
+        is_registered: true,
+        package_name: 'Free Plan',
+        subscribed_plans: ['free'],
+        assigned_classes: [],
+        is_pro: false,
+        enrollment_date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+        payment_status: 'Free Plan',
+        requires_payment: true,
+        access_expires: new Date(Date.now() + 365 * 24 * 3600 * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+    }
+
+    // Immediately persist to memory cache and local storage so UI is instantly updated
+    if (updatedProfile) {
+      profileMemoryCache.set(userId, { profile: updatedProfile, timestamp: Date.now() });
+      try {
+        localStorage.setItem(`boardly_profile_${userId}`, JSON.stringify(updatedProfile));
+        localStorage.setItem('boardly_cached_profile', JSON.stringify(updatedProfile));
+      } catch {}
     }
 
     if (isSupabaseConfigured) {
-      const { error } = await supabase
+      // Write to Supabase 'students' table
+      const { data, error } = await supabase
         .from('students')
         .update({
           dream_university: uni,
           target_university: uni,
           updated_at: new Date().toISOString(),
         })
-        .eq('id', userId);
+        .eq('id', userId)
+        .select('*')
+        .maybeSingle();
 
       if (error) {
-        console.warn('Error updating target_university in Supabase:', error.message);
+        console.warn('Error updating dream_university/target_university in Supabase:', error.message);
+        // Fallback: retry with individual fields if one of the columns doesn't exist
+        const { error: err1 } = await supabase
+          .from('students')
+          .update({ dream_university: uni, updated_at: new Date().toISOString() })
+          .eq('id', userId);
+
+        if (err1) {
+          console.warn('Fallback error updating dream_university:', err1.message);
+          await supabase
+            .from('students')
+            .update({ target_university: uni, updated_at: new Date().toISOString() })
+            .eq('id', userId);
+        }
+
+        if (updatedProfile) {
+          // Extra fallback: upsert full sanitized profile
+          await supabase.from('students').upsert(sanitizeStudentForDb(updatedProfile));
+        }
+      } else if (data) {
+        const normalized = normalizeStudentProfileFromRow(data, userId);
+        updatedProfile = normalized;
+        profileMemoryCache.set(userId, { profile: normalized, timestamp: Date.now() });
+        try {
+          localStorage.setItem(`boardly_profile_${userId}`, JSON.stringify(normalized));
+          localStorage.setItem('boardly_cached_profile', JSON.stringify(normalized));
+        } catch {}
       }
     }
 
     return updatedProfile;
   } catch (err) {
     console.error('Error saving target university:', err);
-    return null;
+    return updatedProfile;
   }
 }
 
