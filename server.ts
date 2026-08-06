@@ -2642,6 +2642,80 @@ Ensure every question is 100% unique, highly relevant to ${subject}${effectiveTo
     }
   });
 
+  // API Endpoint: Update Student Target University in Supabase Postgres
+  app.post("/api/student/update-target-university", async (req, res) => {
+    try {
+      const { userId, userEmail, targetUniversity } = req.body || {};
+      const uni = (targetUniversity || "").toString().trim();
+
+      if (!userId && !userEmail) {
+        return res.status(400).json({ success: false, error: "userId or userEmail required" });
+      }
+
+      const db = getSupabaseAdminClient() || getAuthClient(req) || supabaseServer;
+      if (!db) {
+        return res.status(500).json({ success: false, error: "Database unavailable" });
+      }
+
+      let updateRes: any = null;
+      const nowIso = new Date().toISOString();
+
+      if (userId) {
+        updateRes = await db
+          .from("students")
+          .update({
+            dream_university: uni,
+            target_university: uni,
+            updated_at: nowIso,
+          })
+          .eq("id", userId)
+          .select()
+          .maybeSingle();
+      }
+
+      if ((!updateRes || updateRes.error || !updateRes.data) && userEmail) {
+        updateRes = await db
+          .from("students")
+          .update({
+            dream_university: uni,
+            target_university: uni,
+            updated_at: nowIso,
+          })
+          .eq("email", userEmail)
+          .select()
+          .maybeSingle();
+      }
+
+      if (updateRes && updateRes.error) {
+        console.warn("[/api/student/update-target-university] Retrying single column update:", updateRes.error.message);
+        if (userId) {
+          updateRes = await db
+            .from("students")
+            .update({ dream_university: uni, updated_at: nowIso })
+            .eq("id", userId)
+            .select()
+            .maybeSingle();
+        } else if (userEmail) {
+          updateRes = await db
+            .from("students")
+            .update({ dream_university: uni, updated_at: nowIso })
+            .eq("email", userEmail)
+            .select()
+            .maybeSingle();
+        }
+      }
+
+      return res.json({
+        success: true,
+        target_university: uni,
+        profile: updateRes?.data || null,
+      });
+    } catch (err: any) {
+      console.error("[/api/student/update-target-university] Error:", err);
+      return res.status(500).json({ success: false, error: err?.message || "Failed to update target university" });
+    }
+  });
+
   // API Endpoint: Admin Remove Student (Full Account Wipe)
   app.all("/api/admin/remove-student", async (req, res) => {
     if (req.method === "OPTIONS") {

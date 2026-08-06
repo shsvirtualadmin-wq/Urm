@@ -107,7 +107,10 @@ export const TargetUniversityModal: React.FC<TargetUniversityModalProps> = ({
     const finalUni = (uniToSave || customUni || selectedUni).trim();
     if (!finalUni) return;
 
-    if (!currentUser?.id) {
+    const targetUserId = userProfile?.id || currentUser?.id;
+    const targetEmail = currentUser?.email || userProfile?.email;
+
+    if (!targetUserId) {
       alert("Please log in to save your target university.");
       return;
     }
@@ -116,7 +119,7 @@ export const TargetUniversityModal: React.FC<TargetUniversityModalProps> = ({
     setSuccessMessage('');
 
     try {
-      const updated = await saveStudentTargetUniversity(currentUser.id, finalUni);
+      const updated = await saveStudentTargetUniversity(targetUserId, finalUni, targetEmail);
       if (updated) {
         onUniversityUpdated(updated);
       } else if (userProfile) {

@@ -1402,7 +1402,8 @@ export async function saveStudentRegistration(
 
 export async function saveStudentTargetUniversity(
   userId: string,
-  targetUniversity: string
+  targetUniversity: string,
+  userEmail?: string
 ): Promise<StudentProfile | null> {
   const uni = targetUniversity.trim();
   if (!userId) return null;
@@ -1430,7 +1431,7 @@ export async function saveStudentTargetUniversity(
       updatedProfile = {
         id: userId,
         name: '',
-        email: '',
+        email: userEmail || '',
         phone: '',
         grade: '',
         stream: '',
@@ -1462,8 +1463,29 @@ export async function saveStudentTargetUniversity(
       } catch {}
     }
 
+    // 1. Call Backend API to persist to Supabase Postgres database using server credentials
+    try {
+      const apiRes = await apiFetch('/api/student/update-target-university', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, userEmail: userEmail || updatedProfile?.email, targetUniversity: uni }),
+      });
+      const apiJson = await safeJsonResponse(apiRes);
+      if (apiJson && apiJson.profile) {
+        const normalized = normalizeStudentProfileFromRow(apiJson.profile, userId);
+        updatedProfile = normalized;
+        profileMemoryCache.set(userId, { profile: normalized, timestamp: Date.now() });
+        try {
+          localStorage.setItem(`boardly_profile_${userId}`, JSON.stringify(normalized));
+          localStorage.setItem('boardly_cached_profile', JSON.stringify(normalized));
+        } catch {}
+      }
+    } catch (apiErr) {
+      console.warn('API endpoint update-target-university call warning:', apiErr);
+    }
+
+    // 2. Direct client-side Supabase write fallback
     if (isSupabaseConfigured) {
-      // Write to Supabase 'students' table
       const { data, error } = await supabase
         .from('students')
         .update({
@@ -1476,23 +1498,12 @@ export async function saveStudentTargetUniversity(
         .maybeSingle();
 
       if (error) {
-        console.warn('Error updating dream_university/target_university in Supabase:', error.message);
-        // Fallback: retry with individual fields if one of the columns doesn't exist
-        const { error: err1 } = await supabase
+        console.warn('Error updating dream_university/target_university directly in Supabase:', error.message);
+        await supabase
           .from('students')
           .update({ dream_university: uni, updated_at: new Date().toISOString() })
           .eq('id', userId);
-
-        if (err1) {
-          console.warn('Fallback error updating dream_university:', err1.message);
-          await supabase
-            .from('students')
-            .update({ target_university: uni, updated_at: new Date().toISOString() })
-            .eq('id', userId);
-        }
-
         if (updatedProfile) {
-          // Extra fallback: upsert full sanitized profile
           await supabase.from('students').upsert(sanitizeStudentForDb(updatedProfile));
         }
       } else if (data) {
