@@ -250,6 +250,7 @@ export const StudentRegistrationFlow: React.FC<StudentRegistrationFlowProps> = (
 
   // Submission State
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [isRestoring, setIsRestoring] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [isSuccess, setIsSuccess] = useState<boolean>(false);
   const [completedMode, setCompletedMode] = useState<'paid_proof' | 'trial' | null>(null);
@@ -260,65 +261,96 @@ export const StudentRegistrationFlow: React.FC<StudentRegistrationFlowProps> = (
     let isMounted = true;
 
     const restoreState = async () => {
-      let activeUser = user;
-      if (!activeUser) {
-        const { data: authData } = await supabase.auth.getUser();
-        activeUser = authData?.user || null;
-      }
-
-      if (!activeUser) return;
-
-      if (activeUser.email) setEmail(activeUser.email);
-      const metaName = activeUser.user_metadata?.full_name || activeUser.user_metadata?.name || activeUser.email?.split('@')[0] || '';
-      if (metaName) setFullName(metaName);
-
       try {
-        const profile = await fetchStudentProfileFromSupabase(activeUser.id);
-        if (!isMounted || !profile) return;
+        let activeUser = user;
+        if (!activeUser) {
+          const { data: authData } = await supabase.auth.getUser();
+          activeUser = authData?.user || null;
+        }
 
-        if (profile.name) setFullName(profile.name);
-        if (profile.email) setEmail(profile.email);
-        if (profile.phone) setPhone(profile.phone);
+        if (!activeUser) {
+          if (isMounted) setIsRestoring(false);
+          return;
+        }
 
-        if (profile.grade) {
-          if (profile.grade.includes('MDCAT')) {
-            setSelectedTrack('MDCAT');
-          } else if (profile.grade.includes('TCAT') || profile.grade.includes('ECAT')) {
-            setSelectedTrack('TCAT');
-          } else {
-            setSelectedTrack('FBISE');
-            setFbiseGrade(profile.grade);
+        if (activeUser.email) setEmail(activeUser.email);
+        const metaName = activeUser.user_metadata?.full_name || activeUser.user_metadata?.name || activeUser.email?.split('@')[0] || '';
+        if (metaName) setFullName(metaName);
+
+        // Fetch student profile via Supabase helper and direct DB query
+        let profile: StudentProfile | null = null;
+        let rawData: any = null;
+
+        try {
+          profile = await fetchStudentProfileFromSupabase(activeUser.id);
+        } catch (pErr) {
+          console.warn('[StudentRegistrationFlow] profile fetch notice:', pErr);
+        }
+
+        try {
+          const { data } = await supabase.from('students').select('*').eq('id', activeUser.id).maybeSingle();
+          rawData = data;
+        } catch (dbErr) {
+          console.warn('[StudentRegistrationFlow] DB fetch notice:', dbErr);
+        }
+        const effectiveProfile = profile || (rawData as StudentProfile) || null;
+
+        if (effectiveProfile) {
+          if (effectiveProfile.name) setFullName(effectiveProfile.name);
+          if (effectiveProfile.email) setEmail(effectiveProfile.email);
+          if (effectiveProfile.phone) setPhone(effectiveProfile.phone);
+
+          const gradeVal = effectiveProfile.grade || rawData?.grade || '';
+          const streamVal = effectiveProfile.stream || rawData?.stream || '';
+          const targetUni = effectiveProfile.dream_university || effectiveProfile.target_university || rawData?.dream_university || rawData?.target_university || '';
+          const trxRef = effectiveProfile.transaction_reference || rawData?.transaction_reference || '';
+
+          if (gradeVal) {
+            if (gradeVal.includes('MDCAT')) {
+              setSelectedTrack('MDCAT');
+            } else if (gradeVal.includes('TCAT') || gradeVal.includes('ECAT')) {
+              setSelectedTrack('TCAT');
+            } else {
+              setSelectedTrack('FBISE');
+              setFbiseGrade(gradeVal);
+            }
           }
-        }
 
-        if (profile.stream) {
-          setFbiseStream(profile.stream);
-          setTcatGroup(profile.stream);
-        }
+          if (streamVal) {
+            setFbiseStream(streamVal);
+            setTcatGroup(streamVal);
+          }
 
-        if (profile.dream_university) {
-          setDreamUniversity(profile.dream_university);
-        }
+          if (targetUni) {
+            setDreamUniversity(targetUni);
+          }
 
-        if (profile.transaction_reference) {
-          setTransactionRef(profile.transaction_reference);
-        }
+          if (trxRef) {
+            setTransactionRef(trxRef);
+          }
 
-        const pStatus = (profile.payment_status || '').toLowerCase();
-        const planStat = (profile.plan_status || '').toLowerCase();
-        const isPending = pStatus.includes('pending') || planStat.includes('pending');
+          const pStatus = (rawData?.payment_status || effectiveProfile.payment_status || '').toLowerCase();
+          const planStat = (rawData?.plan_status || effectiveProfile.plan_status || '').toLowerCase();
+          const isPending = pStatus.includes('pending') || planStat.includes('pending') || Boolean(trxRef);
 
-        if (isPending) {
-          setSavedProfileResult(profile);
-          setCompletedMode('paid_proof');
-          setIsSuccess(true);
-        } else if (profile.dream_university) {
-          setCurrentStep(4);
-        } else if (profile.grade) {
-          setCurrentStep(2);
+          if (isPending) {
+            setSavedProfileResult(effectiveProfile);
+            setCompletedMode('paid_proof');
+            setIsSuccess(true);
+          } else if (targetUni) {
+            setCurrentStep(4);
+          } else if (gradeVal) {
+            setCurrentStep(2);
+          } else {
+            setCurrentStep(1);
+          }
         }
       } catch (err) {
         console.warn('[StudentRegistrationFlow] Error restoring state:', err);
+      } finally {
+        if (isMounted) {
+          setIsRestoring(false);
+        }
       }
     };
 
@@ -655,6 +687,19 @@ export const StudentRegistrationFlow: React.FC<StudentRegistrationFlowProps> = (
       setIsSubmitting(false);
     }
   };
+
+  if (isRestoring) {
+    return (
+      <div className="w-full max-w-md mx-auto py-16 text-center space-y-4 animate-fadeIn">
+        <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center mx-auto text-amber-500">
+          <Loader2 className="w-6 h-6 animate-spin text-amber-500" />
+        </div>
+        <p className="text-xs font-bold text-slate-600 dark:text-slate-300">
+          Loading your registration status...
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="w-full max-w-2xl mx-auto py-2">

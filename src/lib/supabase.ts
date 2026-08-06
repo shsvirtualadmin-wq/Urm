@@ -501,7 +501,7 @@ export function evaluateStudentAccess(
     ? (profile.package_name && !profile.package_name.toLowerCase().includes('free') ? profile.package_name : defaultPkgName)
     : (isProExpired ? 'Free Plan (Pro Expired)' : 'Free Plan');
 
-  const paymentStatus = isPro ? 'Verified & Paid' : 'Free Plan';
+  const paymentStatus = isPro ? 'Verified & Paid' : (profile.payment_status || 'Free Plan');
 
   return {
     isPro,
@@ -697,6 +697,8 @@ export function normalizeStudentProfileFromRow(data: any, fallbackUserId?: strin
       ? new Date(data.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
       : new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
     payment_status: finalPaymentStatus,
+    plan_status: data.plan_status || (finalPaymentStatus === 'Pending Verification' ? 'pending_verification' : undefined),
+    transaction_reference: data.transaction_reference || '',
     requires_payment: finalRequiresPayment,
     access_expires: data.access_expires || new Date(Date.now() + 365 * 24 * 3600 * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
     created_at: data.created_at || new Date().toISOString(),
