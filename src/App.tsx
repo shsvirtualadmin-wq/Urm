@@ -1322,6 +1322,16 @@ export function App() {
         if (bgAbort.signal.aborted) break;
 
         const data = await safeJsonResponse(response);
+
+        if (response.status === 403 || data?.limitExceeded) {
+          console.warn('[MCQ Background Generation - Limit Reached Server-Side]:', data?.error || data?.message);
+          setIsGenerating(false);
+          setTrackNotice(data?.message || "You've used your 2 free tests this month — upgrade to continue");
+          setScreen('payment_required');
+          setShowPaymentModal(true);
+          break;
+        }
+
         if (data?.success && Array.isArray(data.questions) && data.questions.length > 0) {
           const isUrduOrIslamiat = ['urdu', 'islam', 'din'].some((s) => targetSubject.toLowerCase().includes(s));
 
@@ -1446,6 +1456,27 @@ export function App() {
     const { data: { session } } = await supabase.auth.getSession();
     const activeUser = session?.user || currentUser;
 
+    // Register test start server-side FIRST
+    if (activeUser && !isAdmin) {
+      try {
+        const recRes = await apiFetch('/api/record-test-start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: activeUser.id, userEmail: activeUser.email }),
+        });
+        const recData = await safeJsonResponse(recRes);
+        if (!recRes.ok || recData?.allowed === false || recData?.limitExceeded) {
+          setIsGenerating(false);
+          setTrackNotice("You've used your 2 free tests this month — upgrade to continue");
+          setScreen('payment_required');
+          setShowPaymentModal(true);
+          return;
+        }
+      } catch (recErr) {
+        console.warn('[executeStartTest record-test-start error]:', recErr);
+      }
+    }
+
     const targetSubject = mapSubject(params.subject || selectedSubject || 'Physics');
     const targetTopic = params.customTopic !== undefined ? params.customTopic : customTopic;
 
@@ -1521,7 +1552,7 @@ export function App() {
     }
   };
 
-  const handleStartTest = (params: {
+  const handleStartTest = async (params: {
     durationMinutes: number;
     questionCount: number;
     difficulty: QuestionDifficulty;
@@ -1568,8 +1599,27 @@ export function App() {
           setShowPaymentModal(true);
           return;
         }
+
+        // Server-side limit pre-check for free plan students
+        try {
+          const checkRes = await apiFetch('/api/check-test-limit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId: currentUser.id, userEmail: currentUser.email }),
+          });
+          const checkData = await safeJsonResponse(checkRes);
+          if (!checkRes.ok || checkData?.allowed === false || checkData?.limitExceeded) {
+            setIsGenerating(false);
+            setTrackNotice("You've used your 2 free tests this month — upgrade to continue");
+            setScreen('payment_required');
+            setShowPaymentModal(true);
+            return;
+          }
+        } catch (checkErr) {
+          console.warn('[handleStartTest check-test-limit error]:', checkErr);
+        }
       }
-      executeStartTest(fullParams);
+      await executeStartTest(fullParams);
     } else {
       setIsGenerating(false);
       setScreen('auth');

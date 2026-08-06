@@ -1261,6 +1261,7 @@ export interface StudentMcqUsageInfo {
   remaining: number;
   resetDate: string;
   isAdmin: boolean;
+  isPro?: boolean;
 }
 
 export async function fetchStudentMcqUsage(
@@ -1289,6 +1290,7 @@ export async function fetchStudentMcqUsage(
           remaining: data.remaining ?? (access.isPro ? 999999 : Math.max(0, 2 - (data.currentUsage ?? 0))),
           resetDate: data.resetDate || fallbackReset,
           isAdmin: Boolean(data.isAdmin),
+          isPro: Boolean(data.isPro ?? access.isPro),
         };
       }
     }
@@ -1304,6 +1306,7 @@ export async function fetchStudentMcqUsage(
     remaining: access.isPro ? 999999 : Math.max(0, 2 - localVal),
     resetDate: fallbackReset,
     isAdmin: isAdminEmail(userEmail),
+    isPro: access.isPro,
   };
 }
 
@@ -1327,10 +1330,11 @@ export async function saveStudentRegistration(
   const isAdmin = Boolean(data.email && isAdminEmail(data.email));
 
   // If student is already registered, prevent changing grade & stream unless admin
+  let existing: StudentProfile | null = null;
   try {
     const existingStr = localStorage.getItem(`boardly_profile_${userId}`);
     if (existingStr) {
-      const existing = JSON.parse(existingStr);
+      existing = JSON.parse(existingStr);
       if (existing?.is_registered && existing?.grade && existing?.stream && !isAdmin) {
         if (existing.grade !== data.grade || existing.stream !== data.stream) {
           throw new Error('Course Registration is locked for your account. Class and Stream changes can only be made by an administrator.');
@@ -1351,6 +1355,8 @@ export async function saveStudentRegistration(
   const isExistingStudent = isStudentExistingBeforeRule(now.toISOString());
   const requiresPayment = !isAdmin && !isExistingStudent;
 
+  const targetUniVal = data.dream_university || existing?.dream_university || existing?.target_university || '';
+
   const profile: StudentProfile = {
     id: userId,
     name: data.name.trim(),
@@ -1359,8 +1365,8 @@ export async function saveStudentRegistration(
     grade: data.grade,
     stream: data.stream,
     subjects: data.subjects || [],
-    dream_university: data.dream_university || '',
-    target_university: data.dream_university || '',
+    dream_university: targetUniVal,
+    target_university: targetUniVal,
     sign_up_method: 'Google',
     status: requiresPayment ? 'pending admin approval' : 'active',
     is_registered: true,
@@ -1400,6 +1406,8 @@ export async function saveStudentRegistration(
             email: profile.email,
             grade: profile.grade,
             stream: profile.stream,
+            dream_university: targetUniVal,
+            target_university: targetUniVal,
             is_registered: true,
             sign_up_method: 'Google',
           });
@@ -1420,84 +1428,68 @@ export async function saveStudentTargetUniversity(
   const uni = targetUniversity.trim();
   if (!userId) return null;
 
-  let updatedProfile: StudentProfile | null = null;
+  let existingStr: string | null = null;
+  try { existingStr = localStorage.getItem(`boardly_profile_${userId}`); } catch {}
+  let existing: StudentProfile | null = existingStr ? JSON.parse(existingStr) : null;
+  if (!existing) {
+    const mem = profileMemoryCache.get(userId);
+    if (mem) existing = mem.profile;
+  }
+
+  let updatedProfile: StudentProfile = existing ? {
+    ...existing,
+    dream_university: uni,
+    target_university: uni,
+    updated_at: new Date().toISOString(),
+  } : {
+    id: userId,
+    name: '',
+    email: userEmail || '',
+    phone: '',
+    grade: '',
+    stream: '',
+    subjects: [],
+    dream_university: uni,
+    target_university: uni,
+    sign_up_method: 'Google',
+    status: 'active',
+    is_registered: true,
+    package_name: 'Free Plan',
+    subscribed_plans: ['free'],
+    assigned_classes: [],
+    is_pro: false,
+    enrollment_date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+    payment_status: 'Free Plan',
+    requires_payment: true,
+    access_expires: new Date(Date.now() + 365 * 24 * 3600 * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+
+  let savedToDb = false;
+
+  // 1. Primary: Call Backend API to persist to Supabase Postgres database using server credentials
   try {
-    const existingStr = localStorage.getItem(`boardly_profile_${userId}`);
-    let existing: StudentProfile | null = null;
-    if (existingStr) {
-      try { existing = JSON.parse(existingStr); } catch {}
+    const apiRes = await apiFetch('/api/student/update-target-university', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId, userEmail: userEmail || updatedProfile.email, targetUniversity: uni }),
+    });
+    const apiJson = await safeJsonResponse(apiRes);
+    if (apiJson && apiJson.success && apiJson.profile) {
+      const normalized = normalizeStudentProfileFromRow(apiJson.profile, userId);
+      updatedProfile = normalized;
+      savedToDb = true;
+    } else if (apiJson && !apiJson.success) {
+      console.warn('[saveStudentTargetUniversity] API returned error:', apiJson.error);
     }
-    if (!existing) {
-      const mem = profileMemoryCache.get(userId);
-      if (mem) existing = mem.profile;
-    }
+  } catch (apiErr) {
+    console.warn('API endpoint update-target-university call warning:', apiErr);
+  }
 
-    if (existing) {
-      updatedProfile = {
-        ...existing,
-        dream_university: uni,
-        target_university: uni,
-        updated_at: new Date().toISOString(),
-      };
-    } else {
-      updatedProfile = {
-        id: userId,
-        name: '',
-        email: userEmail || '',
-        phone: '',
-        grade: '',
-        stream: '',
-        subjects: [],
-        dream_university: uni,
-        target_university: uni,
-        sign_up_method: 'Google',
-        status: 'active',
-        is_registered: true,
-        package_name: 'Free Plan',
-        subscribed_plans: ['free'],
-        assigned_classes: [],
-        is_pro: false,
-        enrollment_date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-        payment_status: 'Free Plan',
-        requires_payment: true,
-        access_expires: new Date(Date.now() + 365 * 24 * 3600 * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
-    }
-
-    // Immediately persist to memory cache and local storage so UI is instantly updated
-    if (updatedProfile) {
-      profileMemoryCache.set(userId, { profile: updatedProfile, timestamp: Date.now() });
-      try {
-        localStorage.setItem(`boardly_profile_${userId}`, JSON.stringify(updatedProfile));
-        localStorage.setItem('boardly_cached_profile', JSON.stringify(updatedProfile));
-      } catch {}
-    }
-
-    // 1. Call Backend API to persist to Supabase Postgres database using server credentials
+  // 2. Fallback: Direct client-side Supabase write if backend endpoint didn't save
+  if (!savedToDb && isSupabaseConfigured) {
     try {
-      const apiRes = await apiFetch('/api/student/update-target-university', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, userEmail: userEmail || updatedProfile?.email, targetUniversity: uni }),
-      });
-      const apiJson = await safeJsonResponse(apiRes);
-      if (apiJson && apiJson.profile) {
-        const normalized = normalizeStudentProfileFromRow(apiJson.profile, userId);
-        updatedProfile = normalized;
-        profileMemoryCache.set(userId, { profile: normalized, timestamp: Date.now() });
-        try {
-          localStorage.setItem(`boardly_profile_${userId}`, JSON.stringify(normalized));
-          localStorage.setItem('boardly_cached_profile', JSON.stringify(normalized));
-        } catch {}
-      }
-    } catch (apiErr) {
-      console.warn('API endpoint update-target-university call warning:', apiErr);
-    }
-
-    // 2. Direct client-side Supabase write fallback
-    if (isSupabaseConfigured) {
       const { data, error } = await supabase
         .from('students')
         .update({
@@ -1509,31 +1501,39 @@ export async function saveStudentTargetUniversity(
         .select('*')
         .maybeSingle();
 
-      if (error) {
-        console.warn('Error updating dream_university/target_university directly in Supabase:', error.message);
-        await supabase
-          .from('students')
-          .update({ dream_university: uni, updated_at: new Date().toISOString() })
-          .eq('id', userId);
-        if (updatedProfile) {
-          await supabase.from('students').upsert(sanitizeStudentForDb(updatedProfile));
-        }
-      } else if (data) {
+      if (!error && data) {
         const normalized = normalizeStudentProfileFromRow(data, userId);
         updatedProfile = normalized;
-        profileMemoryCache.set(userId, { profile: normalized, timestamp: Date.now() });
-        try {
-          localStorage.setItem(`boardly_profile_${userId}`, JSON.stringify(normalized));
-          localStorage.setItem('boardly_cached_profile', JSON.stringify(normalized));
-        } catch {}
-      }
-    }
+        savedToDb = true;
+      } else {
+        console.warn('Direct Supabase update failed, attempting upsert:', error?.message);
+        const { data: upsertData, error: upsertErr } = await supabase
+          .from('students')
+          .upsert(sanitizeStudentForDb(updatedProfile))
+          .select('*')
+          .maybeSingle();
 
-    return updatedProfile;
-  } catch (err) {
-    console.error('Error saving target university:', err);
-    return updatedProfile;
+        if (!upsertErr && upsertData) {
+          const normalized = normalizeStudentProfileFromRow(upsertData, userId);
+          updatedProfile = normalized;
+          savedToDb = true;
+        } else {
+          console.error('Direct Supabase upsert also failed:', upsertErr?.message);
+        }
+      }
+    } catch (dbErr) {
+      console.error('Direct Supabase write exception:', dbErr);
+    }
   }
+
+  // 3. Immediately persist to memory cache and local storage
+  profileMemoryCache.set(userId, { profile: updatedProfile, timestamp: Date.now() });
+  try {
+    localStorage.setItem(`boardly_profile_${userId}`, JSON.stringify(updatedProfile));
+    localStorage.setItem('boardly_cached_profile', JSON.stringify(updatedProfile));
+  } catch {}
+
+  return updatedProfile;
 }
 
 export async function updateStudentPersonalInfo(

@@ -127,6 +127,90 @@ function getNextMonthResetDate(): string {
   return `${monthName} 1st`;
 }
 
+async function checkStudentIsPro(userId: string, userEmail?: string): Promise<boolean> {
+  if (userEmail && isAdminEmail(userEmail)) return true;
+  if (!userId || userId === "guest") return false;
+
+  try {
+    let query = supabaseServer
+      .from("students")
+      .select("is_pro, package_name, payment_status, access_expires, updated_at, created_at");
+
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (uuidRegex.test(userId)) {
+      query = query.eq("id", userId);
+    } else if (userEmail) {
+      query = query.eq("email", userEmail);
+    } else {
+      return false;
+    }
+
+    const { data: stData } = await query.maybeSingle();
+    if (stData) {
+      const rawIsPro = Boolean(stData.is_pro) && stData.payment_status !== "Free Plan";
+      if (rawIsPro) {
+        if (stData.access_expires) {
+          const expTime = new Date(stData.access_expires).getTime();
+          return !isNaN(expTime) && expTime > Date.now();
+        } else if (stData.updated_at || stData.created_at) {
+          const grantTime = new Date(stData.updated_at || stData.created_at).getTime();
+          return !isNaN(grantTime) && (grantTime + 30 * 24 * 3600 * 1000) > Date.now();
+        }
+      }
+    }
+  } catch (e) {
+    console.warn("[checkStudentIsPro] Error checking pro status:", e);
+  }
+  return false;
+}
+
+const inMemoryTestAttemptStore: Record<string, Record<string, number>> = {};
+
+async function getStudentMonthlyTestCount(userId: string, userEmail: string | undefined, req: express.Request | null = null): Promise<number> {
+  const period = getCurrentMonthPeriod();
+  const startOfMonthIso = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
+
+  let dbTestCount = 0;
+
+  try {
+    const authClient = getAuthClient(req || null) || supabaseServer;
+    let query = authClient
+      .from("test_results")
+      .select("id", { count: "exact", head: true })
+      .gte("created_at", startOfMonthIso);
+
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (userId && uuidRegex.test(userId)) {
+      query = query.eq("student_id", userId);
+    } else if (userEmail) {
+      query = query.eq("student_email", userEmail);
+    }
+
+    const { count, error } = await query;
+    if (!error && typeof count === 'number') {
+      dbTestCount = count;
+    } else if (error) {
+      console.warn("[getStudentMonthlyTestCount] Supabase query warning:", error.message);
+    }
+  } catch (err) {
+    console.warn("[getStudentMonthlyTestCount] Supabase exception:", err);
+  }
+
+  const recordedAttempts = inMemoryTestAttemptStore[period]?.[userId] || 0;
+  return Math.max(dbTestCount, recordedAttempts);
+}
+
+function recordStudentTestStart(userId: string, userEmail: string | undefined): number {
+  const period = getCurrentMonthPeriod();
+  if (!inMemoryTestAttemptStore[period]) {
+    inMemoryTestAttemptStore[period] = {};
+  }
+  const current = inMemoryTestAttemptStore[period][userId] || 0;
+  const updated = current + 1;
+  inMemoryTestAttemptStore[period][userId] = updated;
+  return updated;
+}
+
 async function getStudentMonthlyUsage(userId: string, userEmail: string | undefined, req: express.Request | null): Promise<number> {
   const period = getCurrentMonthPeriod();
 
@@ -1556,42 +1640,16 @@ async function startServer() {
     });
   });
 
-  // API Endpoint: Query current MCQ usage for a student
+  // API Endpoint: Query current test usage for a student
   app.get("/api/mcq-usage", async (req, res) => {
     const { user, isAdmin: verifiedAdmin } = await verifyAuthToken(req);
     const userId = user ? user.id : String(req.query.userId || "guest");
     const userEmail = user ? user.email : (req.query.userEmail ? String(req.query.userEmail) : undefined);
     const isAdmin = verifiedAdmin || isAdminEmail(userEmail);
 
-    let isPro = false;
-    if (isAdmin) {
-      isPro = true;
-    } else if (userId && userId !== "guest") {
-      try {
-        const { data: stData } = await supabaseServer
-          .from("students")
-          .select("is_pro, package_name, payment_status, access_expires, updated_at, created_at")
-          .eq("id", userId)
-          .maybeSingle();
+    const isPro = isAdmin ? true : await checkStudentIsPro(userId, userEmail);
 
-        if (stData) {
-          const rawIsPro = Boolean(stData.is_pro) && stData.payment_status !== "Free Plan";
-          if (rawIsPro) {
-            if (stData.access_expires) {
-              const expTime = new Date(stData.access_expires).getTime();
-              isPro = !isNaN(expTime) && expTime > Date.now();
-            } else if (stData.updated_at || stData.created_at) {
-              const grantTime = new Date(stData.updated_at || stData.created_at).getTime();
-              isPro = !isNaN(grantTime) && (grantTime + 30 * 24 * 3600 * 1000) > Date.now();
-            }
-          }
-        }
-      } catch (e) {
-        console.warn("[/api/mcq-usage] Failed to query student pro status:", e);
-      }
-    }
-
-    const currentUsage = await getStudentMonthlyUsage(userId, userEmail, req);
+    const currentUsage = isAdmin ? 0 : await getStudentMonthlyTestCount(userId, userEmail, req);
     const resetDateStr = getNextMonthResetDate();
     const limit = isPro ? 999999 : 2;
     const remaining = isPro ? 999999 : Math.max(0, 2 - currentUsage);
@@ -1605,6 +1663,105 @@ async function startServer() {
       isAdmin,
       isPro,
     });
+  });
+
+  // API Endpoint: Server-side check if student can start a new test
+  app.post("/api/check-test-limit", async (req, res) => {
+    try {
+      const { userId, userEmail } = req.body;
+      const { user, isAdmin: verifiedAdmin } = await verifyAuthToken(req);
+      const activeUserId = user ? user.id : String(userId || "guest");
+      const activeEmail = user ? user.email : (userEmail || undefined);
+      const isAdmin = verifiedAdmin || isAdminEmail(activeEmail);
+
+      const isPro = isAdmin ? true : await checkStudentIsPro(activeUserId, activeEmail);
+      const resetDateStr = getNextMonthResetDate();
+
+      if (isAdmin || isPro) {
+        return res.json({
+          success: true,
+          allowed: true,
+          isPro: true,
+          currentUsage: 0,
+          limit: 999999,
+          remaining: 999999,
+          resetDate: resetDateStr,
+        });
+      }
+
+      const testsTaken = await getStudentMonthlyTestCount(activeUserId, activeEmail, req);
+      if (testsTaken >= 2) {
+        const msg = `You've used your 2 free tests this month — upgrade to continue. Limit resets on ${resetDateStr}.`;
+        return res.status(403).json({
+          success: false,
+          allowed: false,
+          limitExceeded: true,
+          error: msg,
+          message: msg,
+          currentUsage: testsTaken,
+          limit: 2,
+          remaining: 0,
+          resetDate: resetDateStr,
+        });
+      }
+
+      return res.json({
+        success: true,
+        allowed: true,
+        currentUsage: testsTaken,
+        limit: 2,
+        remaining: Math.max(0, 2 - testsTaken),
+        resetDate: resetDateStr,
+      });
+    } catch (err: any) {
+      console.error("[/api/check-test-limit error]:", err);
+      return res.status(500).json({ success: false, error: err?.message || "Failed to check test limit" });
+    }
+  });
+
+  // API Endpoint: Register test start attempt server-side
+  app.post("/api/record-test-start", async (req, res) => {
+    try {
+      const { userId, userEmail } = req.body;
+      const { user, isAdmin: verifiedAdmin } = await verifyAuthToken(req);
+      const activeUserId = user ? user.id : String(userId || "guest");
+      const activeEmail = user ? user.email : (userEmail || undefined);
+      const isAdmin = verifiedAdmin || isAdminEmail(activeEmail);
+
+      const isPro = isAdmin ? true : await checkStudentIsPro(activeUserId, activeEmail);
+      const resetDateStr = getNextMonthResetDate();
+
+      if (!isAdmin && !isPro) {
+        const testsTaken = await getStudentMonthlyTestCount(activeUserId, activeEmail, req);
+        if (testsTaken >= 2) {
+          const msg = `Free Plan Monthly Limit Reached: You've used your 2 free tests this month — upgrade to continue. Limit resets on ${resetDateStr}.`;
+          return res.status(403).json({
+            success: false,
+            allowed: false,
+            limitExceeded: true,
+            error: msg,
+            message: msg,
+            currentUsage: testsTaken,
+            limit: 2,
+            remaining: 0,
+            resetDate: resetDateStr,
+          });
+        }
+      }
+
+      const newAttemptCount = recordStudentTestStart(activeUserId, activeEmail);
+      return res.json({
+        success: true,
+        allowed: true,
+        currentUsage: newAttemptCount,
+        limit: isPro || isAdmin ? 999999 : 2,
+        remaining: isPro || isAdmin ? 999999 : Math.max(0, 2 - newAttemptCount),
+        resetDate: resetDateStr,
+      });
+    } catch (err: any) {
+      console.error("[/api/record-test-start error]:", err);
+      return res.status(500).json({ success: false, error: err?.message || "Failed to record test start" });
+    }
   });
 
   // API Endpoint: Get shared custom topics for a subject
@@ -1865,8 +2022,25 @@ async function startServer() {
       activeGroup = lockedGroup;
     }
 
-    // Fetch current student monthly usage
-    const currentUsage = isAdmin ? 0 : await getStudentMonthlyUsage(userId, userEmail, req);
+    // Query student Pro status and monthly test usage BEFORE cache lookups or AI generation
+    const studentIsPro = isAdmin ? true : await checkStudentIsPro(userId, userEmail);
+    const currentTestCount = isAdmin ? 0 : await getStudentMonthlyTestCount(userId, userEmail, req);
+
+    // Server-side Monthly Test Limit Enforcement (Free Plan = 2 tests/month, Pro Plan/Admin = Unlimited)
+    if (!isAdmin && !studentIsPro && currentTestCount >= 2) {
+      const errorMessage = `Free Plan Monthly Limit Reached: You have used all 2 of 2 tests allowed for this calendar month. Your limit resets on ${resetDateStr}, or you can upgrade to Pro for unlimited tests!`;
+      return res.status(403).json({
+        success: false,
+        limitExceeded: true,
+        error: errorMessage,
+        message: errorMessage,
+        currentUsage: currentTestCount,
+        requestedCount,
+        limit: 2,
+        remaining: 0,
+        resetDate: resetDateStr,
+      });
+    }
 
     // 1. CACHE LOOKUP: Check saved Question Bank in Supabase before calling AI
     if (!bypassCache && topicLabel && topicLabel !== `${subject} FBISE Syllabus` && topicLabel !== "All Topics") {
@@ -1877,8 +2051,7 @@ async function startServer() {
           const shuffledCached = [...cachedBank].sort(() => 0.5 - Math.random());
           const selectedCached = shuffledCached.slice(0, requestedCount);
 
-          // IMPORTANT: Serving cached/reused questions does NOT count against the 100 monthly AI limit!
-          console.log(`[MCQ Cache Served - Free of Limit]: Returned ${selectedCached.length} cached questions for "${subject}" - "${topicLabel}"`);
+          console.log(`[MCQ Cache Served]: Returned ${selectedCached.length} cached questions for "${subject}" - "${topicLabel}"`);
           return res.json({
             success: true,
             selectedSubject: subject,
@@ -1887,9 +2060,9 @@ async function startServer() {
             questions: selectedCached,
             cached: true,
             usage: {
-              currentUsage,
-              limit: 100,
-              remaining: isAdmin ? 999999 : Math.max(0, 100 - currentUsage),
+              currentUsage: currentTestCount,
+              limit: studentIsPro ? 999999 : 2,
+              remaining: studentIsPro ? 999999 : Math.max(0, 2 - currentTestCount),
               resetDate: resetDateStr,
               isAdmin,
             }
@@ -1898,52 +2071,6 @@ async function startServer() {
       } catch (cacheErr) {
         console.warn("[MCQ Cache Lookup Error, continuing to AI generation]:", cacheErr);
       }
-    }
-
-    // Query student Pro status and 30-day expiration window
-    let studentIsPro = false;
-    if (isAdmin) {
-      studentIsPro = true;
-    } else if (userId && userId !== "guest") {
-      try {
-        const { data: stData } = await supabaseServer
-          .from("students")
-          .select("is_pro, package_name, payment_status, access_expires, updated_at, created_at")
-          .eq("id", userId)
-          .maybeSingle();
-
-        if (stData) {
-          const rawIsPro = Boolean(stData.is_pro) && stData.payment_status !== "Free Plan";
-          if (rawIsPro) {
-            if (stData.access_expires) {
-              const expTime = new Date(stData.access_expires).getTime();
-              studentIsPro = !isNaN(expTime) && expTime > Date.now();
-            } else if (stData.updated_at || stData.created_at) {
-              const grantTime = new Date(stData.updated_at || stData.created_at).getTime();
-              studentIsPro = !isNaN(grantTime) && (grantTime + 30 * 24 * 3600 * 1000) > Date.now();
-            }
-          }
-        }
-      } catch (e) {
-        console.warn("[/api/generate-mcqs] Failed to query student pro status:", e);
-      }
-    }
-
-    const testLimit = studentIsPro ? 999999 : 2;
-
-    // 2. Server-side Monthly Test Count Limit Enforcement (Free Plan = 2 tests/month, Pro Plan = Unlimited)
-    if (!isAdmin && !studentIsPro && currentUsage >= 2) {
-      const errorMessage = `Free Plan Monthly Limit Reached: You have used all 2 of 2 tests allowed for this calendar month. Your limit resets on ${resetDateStr}, or you can upgrade to Pro for unlimited tests!`;
-      return res.status(403).json({
-        success: false,
-        limitExceeded: true,
-        error: errorMessage,
-        message: errorMessage,
-        currentUsage,
-        requestedCount,
-        limit: 2,
-        resetDate: resetDateStr,
-      });
     }
 
     let finalQuestions: MCQQuestion[] = [];
@@ -2130,10 +2257,10 @@ Ensure every question is 100% unique, highly relevant to ${subject}${effectiveTo
       }
     }
 
-    // 2. Increment student usage in Supabase / server store only after successful question generation
-    let newUsage = currentUsage;
-    if (finalQuestions.length > 0) {
-      newUsage = await incrementStudentMonthlyUsage(userId, userEmail, finalQuestions.length);
+    // 2. Register student test start in server store upon successful question generation
+    let newUsage = currentTestCount;
+    if (finalQuestions.length > 0 && !isAdmin && !studentIsPro) {
+      newUsage = recordStudentTestStart(userId, userEmail);
     }
 
     return res.json({
@@ -2146,10 +2273,11 @@ Ensure every question is 100% unique, highly relevant to ${subject}${effectiveTo
       weaknessProfile: weaknessProfile || undefined,
       usage: {
         currentUsage: newUsage,
-        limit: 100,
-        remaining: isAdmin ? 999999 : Math.max(0, 100 - newUsage),
+        limit: studentIsPro ? 999999 : 2,
+        remaining: studentIsPro ? 999999 : Math.max(0, 2 - newUsage),
         resetDate: resetDateStr,
         isAdmin,
+        isPro: studentIsPro,
       },
     });
   });
@@ -2686,29 +2814,44 @@ Ensure every question is 100% unique, highly relevant to ${subject}${effectiveTo
           .maybeSingle();
       }
 
-      if (updateRes && updateRes.error) {
-        console.warn("[/api/student/update-target-university] Retrying single column update:", updateRes.error.message);
-        if (userId) {
+      // If no row existed or update returned empty/error, attempt upsert
+      if (!updateRes || updateRes.error || !updateRes.data) {
+        const idToUse = userId || (updateRes?.data?.id);
+        if (idToUse) {
           updateRes = await db
             .from("students")
-            .update({ dream_university: uni, updated_at: nowIso })
-            .eq("id", userId)
-            .select()
-            .maybeSingle();
-        } else if (userEmail) {
-          updateRes = await db
-            .from("students")
-            .update({ dream_university: uni, updated_at: nowIso })
-            .eq("email", userEmail)
+            .upsert({
+              id: idToUse,
+              email: userEmail || "",
+              name: (userEmail || "").split("@")[0] || "Student",
+              dream_university: uni,
+              target_university: uni,
+              updated_at: nowIso,
+            })
             .select()
             .maybeSingle();
         }
       }
 
+      if (updateRes && updateRes.error) {
+        console.error("[/api/student/update-target-university] Supabase write error:", updateRes.error.message);
+        return res.status(500).json({
+          success: false,
+          error: updateRes.error.message || "Database update failed",
+        });
+      }
+
+      if (!updateRes || !updateRes.data) {
+        return res.status(500).json({
+          success: false,
+          error: "Failed to persist target university to database row",
+        });
+      }
+
       return res.json({
         success: true,
         target_university: uni,
-        profile: updateRes?.data || null,
+        profile: updateRes.data,
       });
     } catch (err: any) {
       console.error("[/api/student/update-target-university] Error:", err);

@@ -1029,6 +1029,17 @@ ALTER TABLE public.study_buddy_history ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Admin full access students" ON public.students
   FOR ALL USING (auth.jwt() ->> 'email' = 'shsvirtualadmin@gmail.com');
 
+-- STUDENT SELF-SERVICE POLICIES (Allow students to view, insert & update their own target university & profile)
+CREATE POLICY "Students select own record" ON public.students
+  FOR SELECT USING (auth.uid() = id OR auth.jwt() ->> 'email' = 'shsvirtualadmin@gmail.com');
+
+CREATE POLICY "Students update own record" ON public.students
+  FOR UPDATE USING (auth.uid() = id OR auth.jwt() ->> 'email' = 'shsvirtualadmin@gmail.com')
+  WITH CHECK (auth.uid() = id OR auth.jwt() ->> 'email' = 'shsvirtualadmin@gmail.com');
+
+CREATE POLICY "Students insert own record" ON public.students
+  FOR INSERT WITH CHECK (auth.uid() = id OR auth.jwt() ->> 'email' = 'shsvirtualadmin@gmail.com');
+
 CREATE POLICY "Admin full access test_results" ON public.test_results
   FOR ALL USING (auth.jwt() ->> 'email' = 'shsvirtualadmin@gmail.com');
 

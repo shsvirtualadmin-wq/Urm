@@ -68,15 +68,19 @@ export const DurationScreen: React.FC<DurationScreenProps> = ({
           {stepLabel} &middot; Configuration
         </span>
 
-        {usageInfo?.isAdmin ? (
+        {usageInfo?.isAdmin || usageInfo?.isPro ? (
           <span className="text-[10px] font-bold tracking-wide text-[#0A0A0A] dark:text-[#F2B90C] bg-[#F2B90C] px-3 py-1 rounded-full flex items-center gap-1.5">
             <ShieldCheck className="w-3.5 h-3.5" />
-            Admin (Unlimited)
+            {usageInfo?.isAdmin ? 'Admin (Unlimited)' : 'Pro Plan (Unlimited)'}
           </span>
         ) : usageInfo ? (
-          <span className="text-[10px] font-bold bg-slate-100 dark:bg-white/10 px-3 py-1 rounded-full flex items-center gap-1.5 text-slate-700 dark:text-slate-300">
+          <span className={`text-[10px] font-bold px-3 py-1 rounded-full flex items-center gap-1.5 ${
+            usageInfo.currentUsage >= 2 
+              ? 'bg-rose-100 dark:bg-rose-900/40 text-rose-800 dark:text-rose-300 border border-rose-300 dark:border-rose-700' 
+              : 'bg-slate-100 dark:bg-white/10 text-slate-700 dark:text-slate-300'
+          }`}>
             <Gauge className="w-3.5 h-3.5 text-[#F2B90C]" />
-            {usageInfo.currentUsage} / {usageInfo.limit} MCQs
+            {usageInfo.currentUsage} / 2 Free Tests Used This Month
           </span>
         ) : null}
       </div>
@@ -91,15 +95,15 @@ export const DurationScreen: React.FC<DurationScreenProps> = ({
         </p>
       </div>
 
-      {usageInfo && !usageInfo.isAdmin && usageInfo.currentUsage >= Math.max(1, usageInfo.limit - 20) && (
-        <div className="rounded-2xl p-3.5 flex items-start gap-3 border bg-amber-50 dark:bg-amber-500/10 border-amber-200 dark:border-amber-500/20 text-amber-900 dark:text-amber-200">
-          <AlertTriangle className="w-5 h-5 shrink-0 text-[#F2B90C]" />
-          <div className="text-xs leading-relaxed">
-            <span className="font-bold block mb-0.5">
-              {usageInfo.currentUsage >= usageInfo.limit ? 'Monthly Generation Limit Reached' : 'Monthly Quota Warning'}
-            </span>
-            <span>Usage: {usageInfo.currentUsage} / {usageInfo.limit} MCQs. Reset date: {usageInfo.resetDate}</span>
+      {usageInfo && !usageInfo.isAdmin && !usageInfo.isPro && usageInfo.currentUsage >= 2 && (
+        <div className="rounded-2xl p-4 flex flex-col gap-2 border bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-500/20 text-rose-900 dark:text-rose-200 shadow-sm">
+          <div className="flex items-center gap-2 font-bold text-sm text-rose-700 dark:text-rose-300">
+            <AlertTriangle className="w-5 h-5 shrink-0 text-rose-500" />
+            <span>Monthly Free Test Limit Reached (2/2)</span>
           </div>
+          <p className="text-xs leading-relaxed font-medium">
+            You've used your 2 free tests this month — upgrade to continue taking unlimited practice tests. Limit resets on <strong className="underline">{usageInfo.resetDate}</strong>.
+          </p>
         </div>
       )}
 
