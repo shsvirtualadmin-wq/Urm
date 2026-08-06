@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { triggerHaptic, HAPTIC_PATTERNS } from '../lib/haptics';
+import { UserAvatar } from './UserAvatar';
 import {
   Menu,
   X,
@@ -406,11 +407,12 @@ export const MainHeader: React.FC<MainHeaderProps> = React.memo(({
           {/* Option B: Muted User Account Badge in Utility Bar */}
           {!isLoggedOut && currentUser?.email && (
             <div
-              className="hidden lg:flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-200/80 dark:bg-slate-800/60 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-xs font-medium shadow-xs"
+              onClick={onOpenLmsPortal}
+              className="hidden lg:flex items-center gap-2 pl-1.5 pr-3 py-1 rounded-full bg-slate-200/80 dark:bg-slate-800/60 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-xs font-medium shadow-xs cursor-pointer hover:border-[#F2B90C] transition-all"
               title={`Logged in as ${currentUser.email}`}
             >
-              <User className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
-              <span className="max-w-[120px] truncate text-slate-800 dark:text-slate-300 font-semibold">{currentUser.email}</span>
+              <UserAvatar user={currentUser} profile={userProfile} size="xs" />
+              <span className="max-w-[120px] truncate text-slate-800 dark:text-slate-300 font-semibold">{userProfile?.name || currentUser.email}</span>
             </div>
           )}
 

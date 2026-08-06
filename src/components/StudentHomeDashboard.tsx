@@ -23,6 +23,7 @@ import { HistoryItem } from '../types';
 import { PastPapersSection } from './PastPapersSection';
 import { InstitutionBadge, renderTargetUniversityBadge } from './InstitutionBadge';
 import { TargetUniversityModal } from './TargetUniversityModal';
+import { UserAvatar } from './UserAvatar';
 import { triggerHaptic, HAPTIC_PATTERNS } from '../lib/haptics';
 
 /**
@@ -416,17 +417,20 @@ export const StudentHomeDashboard: React.FC<StudentHomeDashboardProps> = React.m
 
         {/* Greeting Banner */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 relative z-10">
-          <div className="space-y-2 flex-1">
-            <div className="flex items-center gap-2 text-xs font-extrabold text-[#D99A00] dark:text-[#F2B90C] uppercase tracking-wider">
-              <Sparkles className="w-4 h-4" />
-              <span>Student Dashboard</span>
+          <div className="flex items-center gap-4 flex-1">
+            <UserAvatar user={currentUser} profile={userProfile} size="lg" shape="square" className="shadow-md border-2 border-[#F2B90C]/40" />
+            <div className="space-y-1.5 flex-1 min-w-0">
+              <div className="flex items-center gap-2 text-xs font-extrabold text-[#D99A00] dark:text-[#F2B90C] uppercase tracking-wider">
+                <Sparkles className="w-4 h-4" />
+                <span>Student Dashboard</span>
+              </div>
+              <h2 className="font-['Space_Grotesk'] text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white leading-tight truncate">
+                Welcome back, {studentName}! 👋
+              </h2>
+              <p className="text-slate-600 dark:text-slate-300 text-xs sm:text-sm leading-relaxed font-normal">
+                Track your FBISE board exam practice performance, review chapter accuracy, and practice targeted MCQs.
+              </p>
             </div>
-            <h2 className="font-['Space_Grotesk'] text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white leading-tight">
-              Welcome back, {studentName}! 👋
-            </h2>
-            <p className="text-slate-600 dark:text-slate-300 text-xs sm:text-sm leading-relaxed font-normal">
-              Track your FBISE board exam practice performance, review chapter accuracy, and practice targeted MCQs.
-            </p>
           </div>
         </div>
 

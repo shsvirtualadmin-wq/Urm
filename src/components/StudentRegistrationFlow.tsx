@@ -7,6 +7,7 @@ import {
   supabase,
 } from '../lib/supabase';
 import { useSiteSettings } from '../context/SiteSettingsContext';
+import { UserAvatar } from './UserAvatar';
 import {
   CheckCircle2,
   ArrowRight,
@@ -585,9 +586,7 @@ export const StudentRegistrationFlow: React.FC<StudentRegistrationFlowProps> = (
             </div>
 
             <div className="flex items-center gap-3 bg-white dark:bg-[#141414] p-3 rounded-xl border border-slate-200/80 dark:border-white/10 shadow-xs">
-              <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#F2B90C] to-amber-600 text-white flex items-center justify-center shrink-0 font-black text-sm shadow-xs">
-                {(fullName || email || 'S').charAt(0).toUpperCase()}
-              </div>
+              <UserAvatar user={user} profile={{ name: fullName, email: email }} size="sm" />
               <div className="flex-1 min-w-0">
                 <div className="text-xs font-extrabold text-slate-900 dark:text-white truncate">
                   {fullName || 'Student User'}

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { StudentProfile, User, updateStudentPersonalInfo, supabase, evaluateStudentAccess } from '../lib/supabase';
 import { renderTargetUniversityBadge } from './InstitutionBadge';
 import { TargetUniversityModal } from './TargetUniversityModal';
+import { UserAvatar } from './UserAvatar';
 import {
   User as UserIcon,
   Mail,
@@ -114,10 +115,8 @@ export const StudentProfileView: React.FC<StudentProfileViewProps> = ({
 
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 relative z-10">
           <div className="flex items-center gap-4">
-            {/* Initial Letter Avatar on Gold Square */}
-            <div className="w-14 h-14 bg-[#F2B90C] text-[#0A0A0A] font-extrabold text-2xl flex items-center justify-center rounded-2xl shadow-lg shrink-0 border-2 border-white/20">
-              {initialLetter}
-            </div>
+            {/* Google Profile Picture or Initial Letter Avatar */}
+            <UserAvatar user={user} profile={profile} size="lg" shape="square" className="shadow-lg border-2 border-white/20" />
 
             <div className="space-y-1">
               <div className="flex items-center gap-2 flex-wrap">

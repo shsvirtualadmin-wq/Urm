@@ -260,6 +260,7 @@ export interface StudentProfile {
   name: string;
   email: string;
   phone?: string;
+  avatar_url?: string;
   grade: string;
   stream?: string;
   subjects?: string[] | string;
@@ -561,7 +562,7 @@ export function sanitizeStudentForDb(data: Record<string, any>): Record<string, 
     'id', 'name', 'email', 'phone', 'grade', 'stream', 'is_registered',
     'subjects', 'status', 'sign_up_method', 'package_name', 'payment_status',
     'requires_payment', 'is_pro', 'subscribed_plans', 'created_at', 'updated_at',
-    'dream_university', 'target_university'
+    'dream_university', 'target_university', 'avatar_url'
   ];
   const clean: Record<string, any> = {};
   for (const col of allowedColumns) {
@@ -680,6 +681,7 @@ export function normalizeStudentProfileFromRow(data: any, fallbackUserId?: strin
     name: data.name || '',
     email: email,
     phone: data.phone || '',
+    avatar_url: data.avatar_url || data.picture || data.picture_url || '',
     grade: data.grade || '',
     stream: data.stream || '',
     subjects: Array.isArray(data.subjects) ? data.subjects : [],
@@ -725,12 +727,19 @@ export async function syncUserProfile(
       user.email?.split('@')[0] ||
       'Student';
 
+    const avatarUrl =
+      user.user_metadata?.avatar_url ||
+      user.user_metadata?.picture ||
+      user.user_metadata?.picture_url ||
+      '';
+
     const isAdmin = isAdminEmail(user.email);
 
     const defaultProfile: StudentProfile = {
       id: user.id,
       name: displayName,
       email: user.email || '',
+      avatar_url: avatarUrl,
       grade: isAdmin ? 'Admin' : (extraGrade && extraGrade !== 'General Student' ? extraGrade : ''),
       stream: isAdmin ? 'Admin Stream' : '',
       sign_up_method: method,
@@ -759,6 +768,9 @@ export async function syncUserProfile(
         }
         if (displayName && existing.name !== displayName) {
           updates.name = displayName;
+        }
+        if (avatarUrl && existing.avatar_url !== avatarUrl) {
+          updates.avatar_url = avatarUrl;
         }
         if (Object.keys(updates).length > 0) {
           await supabase.from('students').update(updates).eq('id', user.id);
