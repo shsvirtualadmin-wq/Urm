@@ -69,6 +69,35 @@ type ScreenType =
   | 'results'
   | 'admin';
 
+export function checkIsStudentProOrPaid(
+  profile: StudentProfile | null | undefined,
+  isAdmin: boolean
+): boolean {
+  if (isAdmin) return true;
+  if (!profile) return false;
+
+  const hasSubscribedProPlan = Array.isArray(profile.subscribed_plans) &&
+    profile.subscribed_plans.some(p => p && String(p).toLowerCase() !== 'free');
+
+  if (profile.is_pro === true || profile.payment_status === 'Verified & Paid' || hasSubscribedProPlan) {
+    return true;
+  }
+
+  const isExplicitlyFree = profile.is_pro === false || profile.payment_status === 'Free Plan';
+  if (isExplicitlyFree) {
+    return false;
+  }
+
+  if (
+    profile.requires_payment === false ||
+    (profile.created_at && isStudentExistingBeforeRule(profile.created_at))
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
 export function isTrackAllowedForUser(
   profile: StudentProfile | null,
   targetClass: BoardClass | undefined,
@@ -77,20 +106,8 @@ export function isTrackAllowedForUser(
   if (isAdmin) return true;
   if (!profile) return false;
 
-  const isExplicitlyFree = profile.is_pro === false ||
-    profile.payment_status === 'Free Plan' ||
-    (profile.package_name && profile.package_name.toLowerCase().includes('free')) ||
-    (profile.subscribed_plans?.length === 1 && profile.subscribed_plans[0] === 'free');
-
-  if (isExplicitlyFree) {
-    return false;
-  }
-
-  if (
-    profile.is_pro === true ||
-    profile.requires_payment === false ||
-    profile.payment_status === 'Verified & Paid'
-  ) {
+  const isPro = checkIsStudentProOrPaid(profile, isAdmin);
+  if (isPro) {
     return true;
   }
 
@@ -338,13 +355,7 @@ export function App() {
   });
 
   const [profileSyncing, setProfileSyncing] = useState<boolean>(false);
-  const [authLoading, setAuthLoading] = useState<boolean>(() => {
-    try {
-      return !localStorage.getItem('boardly_cached_user');
-    } catch {
-      return false;
-    }
-  });
+  const [authLoading, setAuthLoading] = useState<boolean>(true);
 
   useEffect(() => {
     try {
@@ -640,60 +651,84 @@ export function App() {
   useEffect(() => {
     if (authLoading) return;
 
-    // 1. Unauthenticated User Protection for Protected Routes
-    if (!currentUser) {
-      if (['dashboard', 'subject', 'duration', 'test', 'results', 'guided_wizard', 'plan_selection', 'group', 'grades_flow', 'admin'].includes(screen)) {
-        console.warn(`[Security Guard]: Unauthenticated user attempted to access protected screen (${screen}). Redirecting to auth screen...`);
-        setNextScreenAfterAuth(screen === 'admin' ? 'admin' : 'dashboard');
-        setAuthBackScreen('intro');
-        setScreen('auth');
-        try {
-          localStorage.removeItem('boardly_active_screen');
-        } catch {}
+    let isMounted = true;
+
+    const enforceSecurity = async () => {
+      // 1. Unauthenticated User Protection for Protected Routes
+      if (!currentUser) {
+        if (['dashboard', 'subject', 'duration', 'test', 'results', 'guided_wizard', 'plan_selection', 'group', 'grades_flow', 'admin'].includes(screen)) {
+          // Double-check active session directly with Supabase before bouncing to auth screen
+          const { data: { session } } = await supabase.auth.getSession();
+          if (!isMounted) return;
+
+          if (session?.user) {
+            console.log('[Security Guard]: Restored active session from Supabase during route guard check.');
+            setCurrentUser(session.user);
+            return;
+          }
+
+          console.warn(`[Security Guard]: Unauthenticated user attempted to access protected screen (${screen}). Redirecting to auth screen...`);
+          setNextScreenAfterAuth(screen === 'admin' ? 'admin' : 'dashboard');
+          setAuthBackScreen('intro');
+          setScreen('auth');
+          try {
+            localStorage.removeItem('boardly_active_screen');
+          } catch {}
+        }
+        return;
       }
-      return;
-    }
 
-    // 2. Authenticated Non-Admin Student Protection for Admin Route
-    if (screen === 'admin' && !isAdmin) {
-      console.warn(`[Security Guard]: Non-admin student (${currentUser.email}) attempted to access admin dashboard. Redirecting to home...`);
-      setScreen('intro');
-      try { localStorage.removeItem('boardly_active_screen'); } catch {}
-      return;
-    }
+      // 2. Authenticated Non-Admin Student Protection for Admin Route
+      if (screen === 'admin' && !isAdmin) {
+        console.warn(`[Security Guard]: Non-admin student (${currentUser.email}) attempted to access admin dashboard. Redirecting to home...`);
+        setScreen('intro');
+        try { localStorage.removeItem('boardly_active_screen'); } catch {}
+        return;
+      }
 
-    // 3. Post-Signup Onboarding & Track Access Guard Enforcement
-    if (!isAdmin) {
-      if (!userProfile?.is_registered) {
-        if (screen !== 'guided_wizard' && screen !== 'auth' && screen !== 'intro') {
-          setScreen('guided_wizard');
-        }
-      } else if ((!userProfile?.subscribed_plans || userProfile.subscribed_plans.length === 0) && !isPaymentApprovedOrExempt) {
-        if (screen !== 'plan_selection' && screen !== 'guided_wizard' && screen !== 'auth' && screen !== 'intro') {
-          setScreen('plan_selection');
-        }
-      } else if (
-        userProfile?.requires_payment &&
-        userProfile?.payment_status !== 'Verified & Paid' &&
-        !(userProfile?.created_at && isStudentExistingBeforeRule(userProfile.created_at))
-      ) {
-        const plans = userProfile?.subscribed_plans || [];
-        const isFreeOnly = plans.length === 1 && plans[0] === 'free';
-        if (!isFreeOnly) {
-          if (screen !== 'payment_required' && screen !== 'plan_selection' && screen !== 'auth' && screen !== 'intro') {
-            setScreen('payment_required');
+      // 3. Post-Signup Onboarding & Track Access Guard Enforcement
+      if (!isAdmin) {
+        if (profileSyncing) return; // Wait for profile sync to finish
+
+        if (!userProfile?.is_registered) {
+          if (screen !== 'guided_wizard' && screen !== 'auth' && screen !== 'intro') {
+            setScreen('guided_wizard');
+          }
+        } else if ((!userProfile?.subscribed_plans || userProfile.subscribed_plans.length === 0) && !isPaymentApprovedOrExempt) {
+          if (screen !== 'plan_selection' && screen !== 'guided_wizard' && screen !== 'auth' && screen !== 'intro') {
+            setScreen('plan_selection');
+          }
+        } else if (
+          userProfile?.requires_payment &&
+          userProfile?.payment_status !== 'Verified & Paid' &&
+          !userProfile?.is_pro &&
+          !isPaymentApprovedOrExempt &&
+          !(userProfile?.created_at && isStudentExistingBeforeRule(userProfile.created_at))
+        ) {
+          const plans = userProfile?.subscribed_plans || [];
+          const isFreeOnly = plans.length === 1 && plans[0] === 'free';
+          if (!isFreeOnly) {
+            if (screen !== 'payment_required' && screen !== 'plan_selection' && screen !== 'auth' && screen !== 'intro') {
+              setScreen('payment_required');
+            }
+          }
+        } else if (['dashboard', 'subject', 'duration', 'test'].includes(screen)) {
+          const allowed = isTrackAllowedForUser(userProfile, selectedClass, isAdmin);
+          if (!allowed) {
+            const trackName = selectedClass ? String(selectedClass) : 'this';
+            setTrackNotice(`Access to the ${trackName} track requires a subscription to that plan. Please select a plan to unlock.`);
+            setScreen('plan_selection');
           }
         }
-      } else if (['dashboard', 'subject', 'duration', 'test'].includes(screen)) {
-        const allowed = isTrackAllowedForUser(userProfile, selectedClass, isAdmin);
-        if (!allowed) {
-          const trackName = selectedClass ? String(selectedClass) : 'this';
-          setTrackNotice(`Access to the ${trackName} track requires a subscription to that plan. Please select a plan to unlock.`);
-          setScreen('plan_selection');
-        }
       }
-    }
-  }, [screen, currentUser, isAdmin, authLoading, userProfile, selectedClass, isPaymentApprovedOrExempt]);
+    };
+
+    enforceSecurity();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [screen, currentUser, isAdmin, authLoading, profileSyncing, userProfile, selectedClass, isPaymentApprovedOrExempt]);
 
   // Admin Route Session Logger (Non-destructive verification)
   useEffect(() => {
@@ -1578,47 +1613,39 @@ export function App() {
 
     if (currentUser) {
       if (!isAdmin) {
-        const isExplicitlyFree = userProfile?.is_pro === false ||
-          userProfile?.payment_status === 'Free Plan' ||
-          (userProfile?.package_name && userProfile.package_name.toLowerCase().includes('free')) ||
-          (userProfile?.subscribed_plans?.length === 1 && userProfile?.subscribed_plans[0] === 'free');
-
-        const isExempt = !isExplicitlyFree && (
-          userProfile?.payment_status === 'Verified & Paid' ||
-          (userProfile?.requires_payment === false &&
-            userProfile?.payment_status !== 'Unpaid' &&
-            userProfile?.payment_status !== 'Pending Verification' &&
-            userProfile?.payment_status !== 'Rejected') ||
-          (userProfile?.created_at && isStudentExistingBeforeRule(userProfile.created_at))
-        );
-
-        const plans = userProfile?.subscribed_plans || [];
-        const isFreeOnly = plans.length === 1 && plans[0] === 'free';
-
-        if (!isExempt && !isFreeOnly) {
-          setIsGenerating(false);
-          setScreen('payment_required');
-          setShowPaymentModal(true);
-          return;
+        // ALWAYS re-fetch current profile from database to pick up manual admin plan changes
+        let freshProfile: StudentProfile | null = null;
+        try {
+          freshProfile = await fetchStudentProfileFromSupabase(currentUser.id, true);
+          if (freshProfile) {
+            setUserProfile(freshProfile);
+          }
+        } catch (pErr) {
+          console.warn('[handleStartTest] Error re-fetching profile:', pErr);
         }
 
-        // Server-side limit pre-check for free plan students
-        try {
-          const checkRes = await apiFetch('/api/check-test-limit', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ userId: currentUser.id, userEmail: currentUser.email }),
-          });
-          const checkData = await safeJsonResponse(checkRes);
-          if (!checkRes.ok || checkData?.allowed === false || checkData?.limitExceeded) {
-            setIsGenerating(false);
-            setTrackNotice("You've used your 2 free tests this month — upgrade to continue");
-            setScreen('payment_required');
-            setShowPaymentModal(true);
-            return;
+        const effectiveProfile = freshProfile || userProfile;
+        const isStudentPro = checkIsStudentProOrPaid(effectiveProfile, isAdmin);
+
+        if (!isStudentPro) {
+          // Server-side limit pre-check for free plan students
+          try {
+            const checkRes = await apiFetch('/api/check-test-limit', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ userId: currentUser.id, userEmail: currentUser.email }),
+            });
+            const checkData = await safeJsonResponse(checkRes);
+            if (!checkRes.ok || checkData?.allowed === false || checkData?.limitExceeded) {
+              setIsGenerating(false);
+              setTrackNotice("You've used your 2 free tests this month — upgrade to continue");
+              setScreen('payment_required');
+              setShowPaymentModal(true);
+              return;
+            }
+          } catch (checkErr) {
+            console.warn('[handleStartTest check-test-limit error]:', checkErr);
           }
-        } catch (checkErr) {
-          console.warn('[handleStartTest check-test-limit error]:', checkErr);
         }
       }
       await executeStartTest(fullParams);

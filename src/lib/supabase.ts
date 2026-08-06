@@ -1584,6 +1584,9 @@ export async function checkUserExistsInDatabase(userId: string, email?: string):
   if (email && isAdminEmail(email)) return true;
   if (userId.startsWith('anon-')) return true;
 
+  // Don't flag as non-existent if sync or profile fetch is currently in-flight
+  if (syncInFlightPromises.has(userId) || profileInFlightPromises.has(userId)) return true;
+
   try {
     const { data, error } = await supabase
       .from('students')
@@ -1591,18 +1594,36 @@ export async function checkUserExistsInDatabase(userId: string, email?: string):
       .eq('id', userId)
       .maybeSingle();
 
-    if (!error) {
-      if (!data) {
-        console.warn(`[checkUserExistsInDatabase] Student record ${userId} not found in database (wiped/deleted).`);
-        clearProfileCache(userId);
-        try {
-          localStorage.removeItem(`boardly_profile_${userId}`);
-          localStorage.removeItem('boardly_cached_profile');
-        } catch {}
-        return false;
-      }
+    if (!error && data) {
       return true;
     }
+
+    // Try finding by email if available
+    if (email) {
+      const { data: dataByEmail, error: errByEmail } = await supabase
+        .from('students')
+        .select('id')
+        .eq('email', email)
+        .maybeSingle();
+
+      if (!errByEmail && dataByEmail) {
+        return true;
+      }
+    }
+
+    // Check if profile is cached recently
+    const cachedMem = profileMemoryCache.get(userId);
+    if (cachedMem && Date.now() - cachedMem.timestamp < 300000) {
+      return true;
+    }
+
+    console.warn(`[checkUserExistsInDatabase] Student record ${userId} / ${email} not found in database.`);
+    clearProfileCache(userId);
+    try {
+      localStorage.removeItem(`boardly_profile_${userId}`);
+      localStorage.removeItem('boardly_cached_profile');
+    } catch {}
+    return false;
   } catch (err) {
     console.warn('checkUserExistsInDatabase exception:', err);
   }

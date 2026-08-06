@@ -134,7 +134,7 @@ async function checkStudentIsPro(userId: string, userEmail?: string): Promise<bo
   try {
     let query = supabaseServer
       .from("students")
-      .select("is_pro, package_name, payment_status, access_expires, subscribed_plans, updated_at, created_at");
+      .select("is_pro, package_name, payment_status, access_expires, subscribed_plans, updated_at, created_at, requires_payment");
 
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     if (uuidRegex.test(userId)) {
@@ -152,8 +152,13 @@ async function checkStudentIsPro(userId: string, userEmail?: string): Promise<bo
       if (rawIsPro) {
         if (stData.access_expires) {
           const expTime = new Date(stData.access_expires).getTime();
-          return !isNaN(expTime) && expTime > Date.now();
+          if (!isNaN(expTime)) {
+            return expTime > Date.now();
+          }
         }
+        return true;
+      }
+      if (stData.requires_payment === false && stData.payment_status !== 'Unpaid' && stData.payment_status !== 'Pending Verification' && stData.payment_status !== 'Rejected') {
         return true;
       }
     }
