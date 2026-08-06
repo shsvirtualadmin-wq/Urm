@@ -170,7 +170,11 @@ export const MainHeader: React.FC<MainHeaderProps> = React.memo(({
   const isStudent = Boolean(currentUser && !isUserAdmin);
   const isLoggedOut = !currentUser;
 
-  const handleToggle = () => {
+  const handleToggle = (e?: React.MouseEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
     if (propsOnToggleTheme) {
       propsOnToggleTheme(currentTheme === 'light' ? 'dark' : 'light');
     } else {
@@ -490,8 +494,9 @@ export const MainHeader: React.FC<MainHeaderProps> = React.memo(({
 
           {/* Single Theme Toggle Button */}
           <button
+            type="button"
             onClick={handleToggle}
-            className="p-2 rounded-full hover:bg-black/5 dark:hover:bg-white/10 text-slate-800 dark:text-slate-200 transition-colors active:scale-95 cursor-pointer"
+            className="p-2 rounded-full hover:bg-black/5 dark:hover:bg-white/10 text-slate-800 dark:text-slate-200 transition-colors active:scale-95 cursor-pointer touch-manipulation"
             aria-label="Toggle Light and Dark Theme"
             title={`Switch to ${currentTheme === 'light' ? 'Dark' : 'Light'} Mode`}
           >

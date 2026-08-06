@@ -14,8 +14,11 @@ const ThemeContext = createContext<ThemeContextType>({
   setTheme: () => {},
 });
 
+let globalCurrentTheme: Theme = 'light';
+
 const applyThemeToDOM = (newTheme: Theme) => {
   if (typeof document === 'undefined') return;
+  globalCurrentTheme = newTheme;
   const root = document.documentElement;
   root.setAttribute('data-theme', newTheme);
   if (newTheme === 'dark') {
@@ -32,6 +35,7 @@ const applyThemeToDOM = (newTheme: Theme) => {
 };
 
 const getInitialTheme = (): Theme => {
+  if (typeof window === 'undefined') return 'light';
   try {
     const saved = localStorage.getItem('boardly_theme') || localStorage.getItem('shs_theme');
     if (saved === 'dark' || saved === 'light') {
@@ -39,34 +43,55 @@ const getInitialTheme = (): Theme => {
       return saved;
     }
   } catch {}
-  const isDark = typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const isDark = Boolean(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
   const defaultTheme: Theme = isDark ? 'dark' : 'light';
   applyThemeToDOM(defaultTheme);
   return defaultTheme;
 };
 
+// Initialize theme synchronously on load
+if (typeof window !== 'undefined') {
+  getInitialTheme();
+}
+
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [theme, setThemeState] = useState<Theme>(getInitialTheme);
+  const [theme, setThemeState] = useState<Theme>(() => getInitialTheme());
 
   const setTheme = useCallback((t: Theme) => {
-    // Apply DOM changes instantly before state commit
+    // 1. Instant DOM modification
     applyThemeToDOM(t);
-    try {
-      localStorage.setItem('boardly_theme', t);
-      localStorage.setItem('shs_theme', t);
-    } catch {}
-    setThemeState(t);
+
+    // 2. Non-blocking storage save
+    setTimeout(() => {
+      try {
+        localStorage.setItem('boardly_theme', t);
+        localStorage.setItem('shs_theme', t);
+      } catch {}
+    }, 0);
+
+    // 3. Deferred React state update for UI icon refresh
+    React.startTransition(() => {
+      setThemeState(t);
+    });
   }, []);
 
   const toggleTheme = useCallback(() => {
-    setThemeState((prev) => {
-      const nextTheme = prev === 'light' ? 'dark' : 'light';
-      applyThemeToDOM(nextTheme);
+    const nextTheme: Theme = globalCurrentTheme === 'dark' ? 'light' : 'dark';
+    
+    // 1. Instant DOM modification (0ms latency repaint)
+    applyThemeToDOM(nextTheme);
+
+    // 2. Non-blocking storage save
+    setTimeout(() => {
       try {
         localStorage.setItem('boardly_theme', nextTheme);
         localStorage.setItem('shs_theme', nextTheme);
       } catch {}
-      return nextTheme;
+    }, 0);
+
+    // 3. Deferred React state update for UI icon refresh
+    React.startTransition(() => {
+      setThemeState(nextTheme);
     });
   }, []);
 
@@ -78,3 +103,4 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 };
 
 export const useTheme = () => useContext(ThemeContext);
+

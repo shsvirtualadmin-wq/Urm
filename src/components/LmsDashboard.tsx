@@ -55,7 +55,11 @@ export const LmsDashboard: React.FC<LmsDashboardProps> = ({
   const { theme: contextTheme, setTheme: setContextTheme } = useTheme();
   const currentTheme = propsTheme || contextTheme;
 
-  const handleSetTheme = (newTheme: 'light' | 'dark') => {
+  const handleSetTheme = (newTheme: 'light' | 'dark', e?: React.MouseEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
     if (propsOnToggleTheme) {
       propsOnToggleTheme(newTheme);
     } else {
@@ -165,8 +169,8 @@ export const LmsDashboard: React.FC<LmsDashboardProps> = ({
         <div className="flex items-center justify-end gap-1 bg-[#F5F5F7] dark:bg-white/10 p-1 rounded-xl border border-slate-200 dark:border-white/10 shrink-0">
           <button
             type="button"
-            onClick={() => handleSetTheme('light')}
-            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+            onClick={(e) => handleSetTheme('light', e)}
+            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold flex items-center gap-1.5 transition-all cursor-pointer touch-manipulation ${
               currentTheme === 'light'
                 ? 'bg-[#F2B90C] text-[#0A0A0A] shadow-sm'
                 : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
@@ -178,8 +182,8 @@ export const LmsDashboard: React.FC<LmsDashboardProps> = ({
 
           <button
             type="button"
-            onClick={() => handleSetTheme('dark')}
-            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+            onClick={(e) => handleSetTheme('dark', e)}
+            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold flex items-center gap-1.5 transition-all cursor-pointer touch-manipulation ${
               currentTheme === 'dark'
                 ? 'bg-[#F2B90C] text-[#0A0A0A] shadow-sm'
                 : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
