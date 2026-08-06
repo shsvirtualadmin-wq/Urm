@@ -4,6 +4,7 @@ import {
   User,
   StudentProfile,
   saveStudentRegistration,
+  fetchStudentProfileFromSupabase,
   supabase,
 } from '../lib/supabase';
 import { useSiteSettings } from '../context/SiteSettingsContext';
@@ -254,21 +255,78 @@ export const StudentRegistrationFlow: React.FC<StudentRegistrationFlowProps> = (
   const [completedMode, setCompletedMode] = useState<'paid_proof' | 'trial' | null>(null);
   const [savedProfileResult, setSavedProfileResult] = useState<StudentProfile | null>(null);
 
-  // Sync user info if props update or session is restored
+  // Sync user info & restore saved profile state on mount/update
   useEffect(() => {
-    if (user) {
-      if (user.email) setEmail(user.email);
-      const name = user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split('@')[0] || '';
-      if (name) setFullName(name);
-    } else {
-      supabase.auth.getUser().then(({ data }) => {
-        if (data?.user) {
-          if (data.user.email) setEmail(data.user.email);
-          const name = data.user.user_metadata?.full_name || data.user.user_metadata?.name || data.user.email?.split('@')[0] || '';
-          if (name) setFullName(name);
+    let isMounted = true;
+
+    const restoreState = async () => {
+      let activeUser = user;
+      if (!activeUser) {
+        const { data: authData } = await supabase.auth.getUser();
+        activeUser = authData?.user || null;
+      }
+
+      if (!activeUser) return;
+
+      if (activeUser.email) setEmail(activeUser.email);
+      const metaName = activeUser.user_metadata?.full_name || activeUser.user_metadata?.name || activeUser.email?.split('@')[0] || '';
+      if (metaName) setFullName(metaName);
+
+      try {
+        const profile = await fetchStudentProfileFromSupabase(activeUser.id);
+        if (!isMounted || !profile) return;
+
+        if (profile.name) setFullName(profile.name);
+        if (profile.email) setEmail(profile.email);
+        if (profile.phone) setPhone(profile.phone);
+
+        if (profile.grade) {
+          if (profile.grade.includes('MDCAT')) {
+            setSelectedTrack('MDCAT');
+          } else if (profile.grade.includes('TCAT') || profile.grade.includes('ECAT')) {
+            setSelectedTrack('TCAT');
+          } else {
+            setSelectedTrack('FBISE');
+            setFbiseGrade(profile.grade);
+          }
         }
-      });
-    }
+
+        if (profile.stream) {
+          setFbiseStream(profile.stream);
+          setTcatGroup(profile.stream);
+        }
+
+        if (profile.dream_university) {
+          setDreamUniversity(profile.dream_university);
+        }
+
+        if (profile.transaction_reference) {
+          setTransactionRef(profile.transaction_reference);
+        }
+
+        const pStatus = (profile.payment_status || '').toLowerCase();
+        const planStat = (profile.plan_status || '').toLowerCase();
+        const isPending = pStatus.includes('pending') || planStat.includes('pending');
+
+        if (isPending) {
+          setSavedProfileResult(profile);
+          setCompletedMode('paid_proof');
+          setIsSuccess(true);
+        } else if (profile.dream_university) {
+          setCurrentStep(4);
+        } else if (profile.grade) {
+          setCurrentStep(2);
+        }
+      } catch (err) {
+        console.warn('[StudentRegistrationFlow] Error restoring state:', err);
+      }
+    };
+
+    restoreState();
+
+    return () => {
+      isMounted = false;
+    };
   }, [user]);
 
   // Derive Fee and Plan based on Track Selection
@@ -1576,39 +1634,41 @@ export const StudentRegistrationFlow: React.FC<StudentRegistrationFlowProps> = (
             </>
           ) : (
             <>
-              <div className="w-16 h-16 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-500 flex items-center justify-center mx-auto shadow-lg">
-                <CheckCircle2 className="w-10 h-10 text-emerald-500" />
+              <div className="w-16 h-16 rounded-3xl bg-amber-500/10 dark:bg-amber-500/20 border border-amber-500/30 text-amber-500 flex items-center justify-center mx-auto shadow-lg">
+                <Clock className="w-9 h-9 text-amber-500 animate-pulse" />
               </div>
 
-              <div className="space-y-2">
-                <span className="px-3.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20">
-                  Payment Proof Submitted
+              <div className="space-y-2 text-center">
+                <span className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-500/15 text-amber-800 dark:text-amber-300 border border-amber-500/30">
+                  <ShieldCheck className="w-3.5 h-3.5 text-amber-500" />
+                  <span>Payment Proof Received</span>
                 </span>
-                <h2 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white">
-                  Thanks! Your payment proof has been submitted.
+                <h2 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight">
+                  Payment Proof Received
                 </h2>
                 <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 max-w-md mx-auto leading-relaxed font-medium">
-                  Admin will verify it shortly and unlock your full Pro access.
+                  Payment proof received — our admin usually verifies within 24 hours. You'll be upgraded automatically once approved.
                 </p>
-                <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-900 dark:text-amber-200 font-semibold max-w-md mx-auto">
-                  Note: You can still use free-trial-tier features while waiting for verification.
+              </div>
+
+              <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-left text-xs space-y-2">
+                <div className="font-black text-amber-900 dark:text-amber-200 flex items-center justify-between">
+                  <span>Verification Request Details:</span>
+                  <span className="text-[10px] text-amber-700 dark:text-amber-300 font-bold bg-amber-500/20 px-2 py-0.5 rounded-full">
+                    Pending Verification
+                  </span>
+                </div>
+                <div className="text-slate-700 dark:text-amber-100/90 space-y-1 text-[11px] font-medium">
+                  <div>• Student Name: <strong className="text-slate-900 dark:text-white font-bold">{fullName}</strong> ({email})</div>
+                  <div>• Selected Track: <strong>{selectedTrack === 'FBISE' ? `FBISE ${fbiseGrade}` : selectedTrack === 'MDCAT' ? 'MDCAT' : `TCAT (${tcatGroup})`}</strong></div>
+                  <div>• Target University: <strong>{dreamUniversity === 'Other' ? customUniversity : dreamUniversity}</strong></div>
+                  {transactionRef && (
+                    <div>• Transaction Reference: <span className="font-mono font-bold text-amber-600 dark:text-amber-400">{transactionRef}</span> ({selectedMethod})</div>
+                  )}
                 </div>
               </div>
 
-              <div className="p-4 rounded-2xl bg-slate-50 dark:bg-zinc-900 text-left text-xs space-y-2 border border-slate-200 dark:border-white/10">
-                <div className="font-extrabold text-slate-800 dark:text-slate-200 flex items-center justify-between">
-                  <span>Submitted Details:</span>
-                  <span className="text-[10px] text-amber-600 dark:text-amber-400 font-bold bg-amber-500/10 px-2 py-0.5 rounded-full">Pending Verification</span>
-                </div>
-                <div className="text-slate-600 dark:text-slate-400 space-y-1 text-[11px]">
-                  <div>• Student: <strong className="text-slate-900 dark:text-white">{fullName}</strong></div>
-                  <div>• Track: <strong>{selectedTrack === 'FBISE' ? `FBISE ${fbiseGrade}` : selectedTrack === 'MDCAT' ? 'MDCAT' : `TCAT (${tcatGroup})`}</strong></div>
-                  <div>• Target Institution: <strong>{dreamUniversity === 'Other' ? customUniversity : dreamUniversity}</strong></div>
-                  <div>• TRX Ref: <span className="font-mono font-bold text-amber-500">{transactionRef}</span> ({selectedMethod})</div>
-                </div>
-              </div>
-
-              <div className="flex flex-col gap-3 pt-2">
+              <div className="flex flex-col gap-3 pt-1">
                 <a
                   href={`https://wa.me/923222314436?text=${encodeURIComponent(
                     `Hi, here's my payment proof.\nName: ${fullName.trim()}\nEmail: ${email.trim()}\nTransaction ID: ${transactionRef.trim()}\nScreenshot attached.`
@@ -1618,7 +1678,7 @@ export const StudentRegistrationFlow: React.FC<StudentRegistrationFlowProps> = (
                   className="w-full bg-[#25D366] hover:bg-[#1eae50] text-white font-black py-3.5 px-5 rounded-full text-xs sm:text-sm transition-all cursor-pointer shadow-md flex items-center justify-center gap-2"
                 >
                   <MessageSquare className="w-4 h-4" />
-                  <span>Open WhatsApp to Attach Payment Screenshot</span>
+                  <span>Open WhatsApp (+923222314436)</span>
                 </a>
 
                 <button

@@ -277,6 +277,7 @@ export interface StudentProfile {
   enrollment_date?: string;
   payment_status?: string; // 'Verified & Paid' | 'Pending Verification' | 'Unpaid' | 'Rejected' | 'Free Plan'
   plan_status?: string; // 'trial' | 'pending_verification' | 'verified_pro'
+  transaction_reference?: string;
   requires_payment?: boolean; // true for new signups after rule deployment, false for existing students
   access_expires?: string;
   created_at: string;

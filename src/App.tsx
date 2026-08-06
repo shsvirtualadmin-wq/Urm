@@ -690,22 +690,44 @@ export function App() {
       if (!isAdmin) {
         if (profileSyncing) return; // Wait for profile sync to finish
 
-        if (!userProfile?.is_registered) {
+        // Always re-fetch fresh profile from Supabase to capture immediate Admin Panel updates or Payment Proof updates
+        let activeProf = userProfile;
+        try {
+          const fresh = await fetchStudentProfileFromSupabase(currentUser.id, true);
+          if (fresh) {
+            activeProf = fresh;
+            if (JSON.stringify(fresh) !== JSON.stringify(userProfile)) {
+              setUserProfile(fresh);
+            }
+          }
+        } catch (fErr) {
+          console.warn('[Security Guard]: Profile re-fetch warning:', fErr);
+        }
+
+        const isPendingVerif = (activeProf?.payment_status || '').toLowerCase().includes('pending') ||
+          (activeProf?.plan_status || '').toLowerCase().includes('pending');
+
+        if (!activeProf?.is_registered) {
           if (screen !== 'guided_wizard' && screen !== 'auth' && screen !== 'intro') {
             setScreen('guided_wizard');
           }
-        } else if ((!userProfile?.subscribed_plans || userProfile.subscribed_plans.length === 0) && !isPaymentApprovedOrExempt) {
+        } else if (isPendingVerif) {
+          // Student submitted payment proof: allow access to dashboard or confirmation screen
+          if (screen !== 'dashboard' && screen !== 'guided_wizard' && screen !== 'payment_required' && screen !== 'auth' && screen !== 'intro') {
+            setScreen('dashboard');
+          }
+        } else if ((!activeProf?.subscribed_plans || activeProf.subscribed_plans.length === 0) && !isPaymentApprovedOrExempt) {
           if (screen !== 'plan_selection' && screen !== 'guided_wizard' && screen !== 'auth' && screen !== 'intro') {
             setScreen('plan_selection');
           }
         } else if (
-          userProfile?.requires_payment &&
-          userProfile?.payment_status !== 'Verified & Paid' &&
-          !userProfile?.is_pro &&
+          activeProf?.requires_payment &&
+          activeProf?.payment_status !== 'Verified & Paid' &&
+          !activeProf?.is_pro &&
           !isPaymentApprovedOrExempt &&
-          !(userProfile?.created_at && isStudentExistingBeforeRule(userProfile.created_at))
+          !(activeProf?.created_at && isStudentExistingBeforeRule(activeProf.created_at))
         ) {
-          const plans = userProfile?.subscribed_plans || [];
+          const plans = activeProf?.subscribed_plans || [];
           const isFreeOnly = plans.length === 1 && plans[0] === 'free';
           if (!isFreeOnly) {
             if (screen !== 'payment_required' && screen !== 'plan_selection' && screen !== 'auth' && screen !== 'intro') {
@@ -713,7 +735,7 @@ export function App() {
             }
           }
         } else if (['dashboard', 'subject', 'duration', 'test'].includes(screen)) {
-          const allowed = isTrackAllowedForUser(userProfile, selectedClass, isAdmin);
+          const allowed = isTrackAllowedForUser(activeProf, selectedClass, isAdmin);
           if (!allowed) {
             const trackName = selectedClass ? String(selectedClass) : 'this';
             setTrackNotice(`Access to the ${trackName} track requires a subscription to that plan. Please select a plan to unlock.`);

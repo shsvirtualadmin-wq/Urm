@@ -13,7 +13,7 @@ import {
   ArrowRight,
   Phone,
 } from 'lucide-react';
-import { StudentProfile, User, submitPaymentProofApi, PaymentRequest } from '../lib/supabase';
+import { StudentProfile, User, submitPaymentProofApi, PaymentRequest, supabase } from '../lib/supabase';
 
 interface PaymentProofModalProps {
   isOpen: boolean;
@@ -183,6 +183,21 @@ Please verify my payment and activate my account.`;
     setIsSubmitting(true);
 
     try {
+      if (currentUser?.id) {
+        try {
+          await supabase
+            .from('students')
+            .update({
+              payment_status: 'Pending Verification',
+              plan_status: 'pending_verification',
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', currentUser.id);
+        } catch (dbErr) {
+          console.warn('[PaymentProofModal] Supabase student update notice:', dbErr);
+        }
+      }
+
       const payload = {
         student_id: studentId,
         student_name: nameVal,
@@ -208,8 +223,8 @@ Please verify my payment and activate my account.`;
       }
 
       setIsSuccess(true);
-      if (res.success && res.data && onSubmitted) {
-        onSubmitted(res.data);
+      if (onSubmitted) {
+        onSubmitted(res.data || (payload as any));
       }
     } catch (err: any) {
       console.error('[PaymentProofModal] Submission error:', err);
