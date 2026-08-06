@@ -275,7 +275,8 @@ export interface StudentProfile {
   is_pro?: boolean;
   target_exam?: 'FBISE' | 'MDCAT' | 'TCAT';
   enrollment_date?: string;
-  payment_status?: string; // 'Verified & Paid' | 'Pending Verification' | 'Unpaid' | 'Rejected'
+  payment_status?: string; // 'Verified & Paid' | 'Pending Verification' | 'Unpaid' | 'Rejected' | 'Free Plan'
+  plan_status?: string; // 'trial' | 'pending_verification' | 'verified_pro'
   requires_payment?: boolean; // true for new signups after rule deployment, false for existing students
   access_expires?: string;
   created_at: string;
@@ -557,7 +558,7 @@ export function sanitizeStudentForDb(data: Record<string, any>): Record<string, 
   if (!data) return {};
   const allowedColumns = [
     'id', 'name', 'email', 'phone', 'grade', 'stream', 'is_registered',
-    'subjects', 'status', 'sign_up_method', 'package_name', 'payment_status',
+    'subjects', 'status', 'sign_up_method', 'package_name', 'payment_status', 'plan_status',
     'requires_payment', 'is_pro', 'subscribed_plans', 'created_at', 'updated_at',
     'dream_university', 'target_university', 'avatar_url'
   ];
@@ -1318,10 +1319,12 @@ export async function saveStudentRegistration(
     subjects?: string[];
     dream_university?: string;
     payment_status?: string;
+    plan_status?: string;
     payment_method?: string;
     transaction_reference?: string;
     drive_file_id?: string;
     drive_file_url?: string;
+    status?: string;
   }
 ): Promise<StudentProfile> {
   const isAdmin = Boolean(data.email && isAdminEmail(data.email));
@@ -1365,13 +1368,14 @@ export async function saveStudentRegistration(
     dream_university: targetUniVal,
     target_university: targetUniVal,
     sign_up_method: 'Google',
-    status: requiresPayment ? 'pending admin approval' : 'active',
+    status: data.status || (requiresPayment ? 'pending admin approval' : 'active'),
     is_registered: true,
     package_name: requiresPayment ? 'Free Plan' : (data.grade === 'MDCAT' ? '⭐ MDCAT Pro' : data.grade === 'TCAT' ? '⭐ TCAT Pro' : '⭐ Boardly Pro Pass'),
     subscribed_plans: requiresPayment ? ['free'] : ['boardly_pro'],
     is_pro: !requiresPayment,
     enrollment_date: enrollmentDateStr,
     payment_status: data.payment_status || (isAdmin || isExistingStudent ? 'Verified & Paid' : 'Unpaid'),
+    plan_status: data.plan_status || (data.payment_status === 'Pending Verification' ? 'pending_verification' : (data.payment_status === 'Free Plan' || data.payment_status === 'trial' ? 'trial' : 'verified_pro')),
     requires_payment: requiresPayment,
     access_expires: expiresDateStr,
     created_at: now.toISOString(),
@@ -1578,6 +1582,7 @@ export async function updateStudentPersonalInfo(
 export async function checkUserExistsInDatabase(userId: string, email?: string): Promise<boolean> {
   if (!isSupabaseConfigured || !userId) return true;
   if (email && isAdminEmail(email)) return true;
+  if (userId.startsWith('anon-')) return true;
 
   try {
     const { data, error } = await supabase

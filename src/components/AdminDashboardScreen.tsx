@@ -1702,6 +1702,19 @@ CREATE POLICY "Admin full access study_buddy_history" ON public.study_buddy_hist
                                     : `${studentTests} / 2 Monthly Tests Used`}
                                 </span>
                               </span>
+
+                              {/* Plan Status Badge */}
+                              {(student.plan_status === 'trial' || student.payment_status === 'Free Plan') && !access.isPro ? (
+                                <span className="text-[10px] font-extrabold bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-lg flex items-center gap-1">
+                                  <Clock className="w-3 h-3 text-emerald-500 shrink-0" />
+                                  <span>Free Trial</span>
+                                </span>
+                              ) : (student.plan_status === 'pending_verification' || student.payment_status === 'Pending Verification') && !access.isPro ? (
+                                <span className="text-[10px] font-extrabold bg-amber-500/15 text-amber-800 dark:text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-lg flex items-center gap-1">
+                                  <Clock className="w-3 h-3 text-amber-500 shrink-0" />
+                                  <span>Pending Verification</span>
+                                </span>
+                              ) : null}
                             </>
                           );
                         })()}

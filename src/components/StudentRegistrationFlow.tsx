@@ -162,6 +162,49 @@ const TCAT_GROUPS = [
   },
 ];
 
+// FBISE Streams by Class Level
+const MATRIC_STREAMS = [
+  {
+    id: 'Medical',
+    name: 'Medical',
+    getSubjects: (grade: string) =>
+      `English, Urdu, ${grade === 'Class 10' ? 'Pakistan Studies' : 'Islamiat'}, Mathematics, Physics, Chemistry, Biology`,
+  },
+  {
+    id: 'Computer Science',
+    name: 'Computer Science',
+    getSubjects: (grade: string) =>
+      `English, Urdu, ${grade === 'Class 10' ? 'Pakistan Studies' : 'Islamiat'}, Mathematics, Physics, Chemistry, Computer Science`,
+  },
+  {
+    id: 'General Science',
+    name: 'General Science',
+    getSubjects: (grade: string) =>
+      `English, Urdu, ${grade === 'Class 10' ? 'Pakistan Studies' : 'Islamiat'}, Mathematics, Physics, Chemistry`,
+  },
+];
+
+const FSC_STREAMS = [
+  {
+    id: 'Pre-Medical',
+    name: 'Pre-Medical',
+    getSubjects: (grade: string) =>
+      `English, Urdu, ${grade === 'Class 12' ? 'Pakistan Studies' : 'Islamiat'}, Physics, Chemistry, Biology`,
+  },
+  {
+    id: 'Pre-Engineering',
+    name: 'Pre-Engineering',
+    getSubjects: (grade: string) =>
+      `English, Urdu, ${grade === 'Class 12' ? 'Pakistan Studies' : 'Islamiat'}, Physics, Chemistry, Mathematics`,
+  },
+  {
+    id: 'ICS',
+    name: 'ICS',
+    getSubjects: (grade: string) =>
+      `English, Urdu, ${grade === 'Class 12' ? 'Pakistan Studies' : 'Islamiat'}, Physics, Mathematics, Computer Science`,
+  },
+];
+
 export const StudentRegistrationFlow: React.FC<StudentRegistrationFlowProps> = ({
   user,
   onRegistrationComplete,
@@ -196,6 +239,7 @@ export const StudentRegistrationFlow: React.FC<StudentRegistrationFlowProps> = (
 
   // Step 4: Fee Challan & Payment Info
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [selectedPlanChoice, setSelectedPlanChoice] = useState<'paid' | 'trial'>('paid');
 
   // Step 5: Payment Proof Submission
   const [selectedMethod, setSelectedMethod] = useState<string>('JazzCash');
@@ -207,6 +251,8 @@ export const StudentRegistrationFlow: React.FC<StudentRegistrationFlowProps> = (
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [isSuccess, setIsSuccess] = useState<boolean>(false);
+  const [completedMode, setCompletedMode] = useState<'paid_proof' | 'trial' | null>(null);
+  const [savedProfileResult, setSavedProfileResult] = useState<StudentProfile | null>(null);
 
   // Sync user info if props update or session is restored
   useEffect(() => {
@@ -281,9 +327,40 @@ export const StudentRegistrationFlow: React.FC<StudentRegistrationFlowProps> = (
     setTimeout(() => setCopiedId(null), 2000);
   };
 
+  // Handle Grade selection change for FBISE track
+  const handleGradeChange = (newGrade: string) => {
+    setError(null);
+    setFbiseGrade(newGrade);
+    const isMatric = newGrade === 'Class 9' || newGrade === 'Class 10';
+    const validStreams = isMatric
+      ? MATRIC_STREAMS.map((s) => s.id)
+      : FSC_STREAMS.map((s) => s.id);
+
+    // If currently selected stream is not valid for the new grade, clear it
+    if (!validStreams.includes(fbiseStream)) {
+      setFbiseStream('');
+    }
+  };
+
   // Step 1 -> Step 2 Validation & Proceed
   const handleProceedFromStep1 = async () => {
     setError(null);
+
+    if (selectedTrack === 'FBISE') {
+      if (!fbiseGrade) {
+        setError('Please select a class grade.');
+        return;
+      }
+      const isMatric = fbiseGrade === 'Class 9' || fbiseGrade === 'Class 10';
+      const validStreams = isMatric
+        ? MATRIC_STREAMS.map((s) => s.id)
+        : FSC_STREAMS.map((s) => s.id);
+
+      if (!fbiseStream || !validStreams.includes(fbiseStream)) {
+        setError('Please select an academic stream for your selected class grade.');
+        return;
+      }
+    }
 
     let activeUser = user;
     if (!activeUser) {
@@ -371,6 +448,57 @@ export const StudentRegistrationFlow: React.FC<StudentRegistrationFlowProps> = (
     }
   };
 
+  // Start Free Trial Handler (Skips Step 5)
+  const handleStartFreeTrial = async () => {
+    setError(null);
+    setIsSubmitting(true);
+
+    const chosenUni = dreamUniversity === 'Other' ? customUniversity : dreamUniversity;
+    const gradeVal =
+      selectedTrack === 'FBISE'
+        ? fbiseGrade
+        : selectedTrack === 'MDCAT'
+        ? 'MDCAT Prep'
+        : 'TCAT Prep';
+    const streamVal =
+      selectedTrack === 'FBISE'
+        ? fbiseStream
+        : selectedTrack === 'MDCAT'
+        ? 'PMDC Medical Entry Test'
+        : tcatGroup;
+
+    try {
+      let activeUser = user;
+      if (!activeUser) {
+        const { data: authData } = await supabase.auth.getUser();
+        activeUser = authData?.user || null;
+      }
+
+      const userId = activeUser?.id || `anon-${Date.now()}`;
+
+      const savedProfile = await saveStudentRegistration(userId, {
+        name: fullName.trim(),
+        email: email.trim(),
+        phone: phone.trim() || undefined,
+        grade: gradeVal,
+        stream: streamVal,
+        dream_university: chosenUni,
+        payment_status: 'Free Plan',
+        plan_status: 'trial',
+        status: 'active',
+      });
+
+      setSavedProfileResult(savedProfile);
+      setCompletedMode('trial');
+      setIsSuccess(true);
+    } catch (err: any) {
+      console.error('Free trial registration error:', err);
+      setError(err?.message || 'Failed to activate free trial. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   // Final Payment Proof Submission (Step 5)
   const handleSubmitPaymentProof = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -413,27 +541,24 @@ export const StudentRegistrationFlow: React.FC<StudentRegistrationFlowProps> = (
       }
 
       const userId = activeUser?.id || `anon-${Date.now()}`;
-      const activeName = fullName || activeUser?.user_metadata?.full_name || activeUser?.user_metadata?.name || activeUser?.email?.split('@')[0] || 'Student';
-      const activeEmail = email || activeUser?.email || '';
 
       // 2. Submit Payment Request details to backend
-      const res = await fetch('/api/payment-requests/submit', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          student_id: userId,
-          student_name: fullName.trim(),
-          student_email: email.trim(),
-          payment_method: selectedMethod,
-          amount: planDetails.fee.replace(',', ''),
-          transaction_reference: transactionRef.trim(),
-          course_tier: trackText,
-        }),
-      });
-
-      const resData = await res.json();
-      if (!res.ok || !resData.success) {
-        throw new Error(resData.error || 'Failed to submit payment details.');
+      try {
+        await fetch('/api/payment-requests/submit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            student_id: userId,
+            student_name: fullName.trim(),
+            student_email: email.trim(),
+            payment_method: selectedMethod,
+            amount: planDetails.fee.replace(',', ''),
+            transaction_reference: transactionRef.trim(),
+            course_tier: trackText,
+          }),
+        });
+      } catch (reqErr) {
+        console.warn('Payment request API submission notice:', reqErr);
       }
 
       // 3. Save / Update student profile in Supabase
@@ -445,13 +570,14 @@ export const StudentRegistrationFlow: React.FC<StudentRegistrationFlowProps> = (
         stream: streamVal,
         dream_university: chosenUni,
         payment_status: 'Pending Verification',
+        plan_status: 'pending_verification',
         payment_method: selectedMethod,
         transaction_reference: transactionRef.trim(),
         drive_file_id: 'whatsapp-submission',
         drive_file_url: 'WhatsApp Submission (+923222314436)',
       });
 
-      // 3. Open WhatsApp with pre-filled details
+      // 4. Open WhatsApp with pre-filled details
       const whatsappMsg = `Hi, here's my payment proof.\nName: ${fullName.trim()}\nEmail: ${email.trim()}\nTrack: ${trackText}\nTransaction ID: ${transactionRef.trim()}\nAccount Paid To: ${selectedMethod}\nScreenshot attached.`;
       const waUrl = `https://wa.me/923222314436?text=${encodeURIComponent(whatsappMsg)}`;
 
@@ -461,10 +587,9 @@ export const StudentRegistrationFlow: React.FC<StudentRegistrationFlowProps> = (
         console.warn('Could not auto-open WhatsApp link:', e);
       }
 
+      setSavedProfileResult(savedProfile);
+      setCompletedMode('paid_proof');
       setIsSuccess(true);
-      if (savedProfile) {
-        onRegistrationComplete(savedProfile);
-      }
     } catch (err: any) {
       console.error('Registration/Payment Submission Error:', err);
       setError(err?.message || 'Failed to complete registration. Please try again.');
@@ -692,58 +817,79 @@ export const StudentRegistrationFlow: React.FC<StudentRegistrationFlowProps> = (
           </div>
 
           {/* Track Sub-Options */}
-          {selectedTrack === 'FBISE' && (
-            <div className="space-y-4 pt-2 border-t border-slate-100 dark:border-white/10">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">
-                  Select Class Grade
-                </label>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  {['Class 9', 'Class 10', 'Class 11', 'Class 12'].map((g) => (
-                    <button
-                      key={g}
-                      type="button"
-                      onClick={() => setFbiseGrade(g)}
-                      className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
-                        fbiseGrade === g
-                          ? 'bg-amber-500 text-black border-amber-500 font-black shadow-sm'
-                          : 'bg-slate-100 dark:bg-zinc-800 border-transparent text-slate-700 dark:text-slate-300'
-                      }`}
-                    >
-                      {g}
-                    </button>
-                  ))}
-                </div>
-              </div>
+          {selectedTrack === 'FBISE' && (() => {
+            const isMatric = fbiseGrade === 'Class 9' || fbiseGrade === 'Class 10';
+            const availableStreams = isMatric ? MATRIC_STREAMS : FSC_STREAMS;
 
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">
-                  Select Academic Stream
-                </label>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {[
-                    'Pre-Medical',
-                    'Pre-Engineering',
-                    'Computer Science (ICS)',
-                    'General Science / Humanities',
-                  ].map((st) => (
-                    <button
-                      key={st}
-                      type="button"
-                      onClick={() => setFbiseStream(st)}
-                      className={`py-2 px-3 rounded-xl border text-left text-xs font-bold transition-all cursor-pointer ${
-                        fbiseStream === st
-                          ? 'bg-amber-500/15 border-amber-500 text-amber-900 dark:text-amber-200 font-extrabold'
-                          : 'bg-slate-100 dark:bg-zinc-800 border-transparent text-slate-700 dark:text-slate-300'
-                      }`}
-                    >
-                      {st}
-                    </button>
-                  ))}
+            return (
+              <div className="space-y-4 pt-2 border-t border-slate-100 dark:border-white/10">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">
+                    Select Class Grade
+                  </label>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {['Class 9', 'Class 10', 'Class 11', 'Class 12'].map((g) => (
+                      <button
+                        key={g}
+                        type="button"
+                        onClick={() => handleGradeChange(g)}
+                        className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                          fbiseGrade === g
+                            ? 'bg-amber-500 text-black border-amber-500 font-black shadow-sm'
+                            : 'bg-slate-100 dark:bg-zinc-800 border-transparent text-slate-700 dark:text-slate-300'
+                        }`}
+                      >
+                        {g}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                      Select Academic Stream <span className="text-amber-500">*</span>
+                    </label>
+                    {!fbiseStream && (
+                      <span className="text-[10px] text-rose-500 font-bold bg-rose-500/10 px-2 py-0.5 rounded-full border border-rose-500/20">
+                        Selection Required
+                      </span>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                    {availableStreams.map((st) => {
+                      const isSel = fbiseStream === st.id;
+                      return (
+                        <button
+                          key={st.id}
+                          type="button"
+                          onClick={() => {
+                            setError(null);
+                            setFbiseStream(st.id);
+                          }}
+                          className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
+                            isSel
+                              ? 'bg-amber-500/15 border-amber-500 text-slate-900 dark:text-white ring-2 ring-amber-500/30'
+                              : 'bg-slate-50 dark:bg-zinc-900 border-slate-200 dark:border-white/10 hover:border-slate-300 dark:hover:border-white/20'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between mb-1.5">
+                            <span className="font-extrabold text-xs text-slate-900 dark:text-white">
+                              {st.name}
+                            </span>
+                            {isSel && <CheckCircle2 className="w-4 h-4 text-amber-500 shrink-0" />}
+                          </div>
+                          <p className="text-[10px] text-slate-500 dark:text-slate-400 font-medium leading-relaxed">
+                            {st.getSubjects(fbiseGrade)}
+                          </p>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           {selectedTrack === 'TCAT' && (
             <div className="space-y-3 pt-2 border-t border-slate-100 dark:border-white/10">
@@ -806,7 +952,8 @@ export const StudentRegistrationFlow: React.FC<StudentRegistrationFlowProps> = (
           <button
             type="button"
             onClick={handleProceedFromStep1}
-            className="w-full bg-[#F2B90C] hover:bg-[#d9a50a] text-[#0A0A0A] font-black py-3.5 px-6 rounded-full transition-all cursor-pointer text-xs sm:text-sm shadow-md flex items-center justify-center gap-2 mt-4"
+            disabled={selectedTrack === 'FBISE' && !fbiseStream}
+            className="w-full bg-[#F2B90C] hover:bg-[#d9a50a] text-[#0A0A0A] font-black py-3.5 px-6 rounded-full transition-all cursor-pointer text-xs sm:text-sm shadow-md flex items-center justify-center gap-2 mt-4 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-[#F2B90C]"
           >
             <span>Proceed to Step 2: Dream University Selection</span>
             <ArrowRight className="w-4 h-4" />
@@ -1028,10 +1175,8 @@ export const StudentRegistrationFlow: React.FC<StudentRegistrationFlowProps> = (
             <ArrowRight className="w-4 h-4" />
           </button>
         </motion.div>
-      )}
-
-      {/* ========================================================================= */}
-      {/* STEP 4: Confirm Details & Show Relevant Challan */}
+      )}      {/* ========================================================================= */}
+      {/* STEP 4: Choose Option (Pro Plan vs Free Trial) & View Fee Challan */}
       {/* ========================================================================= */}
       {currentStep === 4 && (
         <motion.div
@@ -1046,10 +1191,10 @@ export const StudentRegistrationFlow: React.FC<StudentRegistrationFlowProps> = (
                 Step 4 of 5
               </span>
               <h2 className="text-lg font-black text-slate-900 dark:text-white">
-                Confirm Details & View Fee Challan
+                Choose Access Plan
               </h2>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                Review your selections and view the official fee challan for your chosen track.
+                Select whether you want to start with a Free Trial or activate the full Pro Plan with fee payment.
               </p>
             </div>
             <button
@@ -1062,10 +1207,39 @@ export const StudentRegistrationFlow: React.FC<StudentRegistrationFlowProps> = (
             </button>
           </div>
 
+          {/* Plan Choice Selector Tabs */}
+          <div className="bg-slate-100 dark:bg-zinc-900 p-1.5 rounded-2xl border border-slate-200 dark:border-white/10 grid grid-cols-2 gap-1.5">
+            <button
+              type="button"
+              onClick={() => setSelectedPlanChoice('paid')}
+              className={`py-3 px-3 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                selectedPlanChoice === 'paid'
+                  ? 'bg-[#F2B90C] text-black shadow-md'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+              }`}
+            >
+              <Sparkles className="w-4 h-4" />
+              <span>Continue with Paid / Pro Plan</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setSelectedPlanChoice('trial')}
+              className={`py-3 px-3 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                selectedPlanChoice === 'trial'
+                  ? 'bg-emerald-500 text-white shadow-md'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+              }`}
+            >
+              <Clock className="w-4 h-4" />
+              <span>Start Free Trial</span>
+            </button>
+          </div>
+
           {/* Selection Summary Box */}
           <div className="bg-slate-50 dark:bg-zinc-900 p-4 rounded-2xl border border-slate-200 dark:border-white/10 space-y-2.5">
             <span className="text-xs font-black uppercase tracking-wider text-slate-600 dark:text-slate-400 block">
-              Registration Summary
+              Registration Details
             </span>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
               <div>
@@ -1095,90 +1269,150 @@ export const StudentRegistrationFlow: React.FC<StudentRegistrationFlowProps> = (
             </div>
           </div>
 
-          {/* Single Relevant Fee Challan Card */}
-          <div className="bg-gradient-to-br from-slate-900 to-[#141414] text-white p-5 rounded-2xl border-2 border-amber-500/50 shadow-xl space-y-4">
-            <div className="flex items-center justify-between border-b border-white/10 pb-3">
-              <div>
-                <span className="text-[10px] font-black uppercase tracking-wider text-amber-400">
-                  Official Track Fee Challan
-                </span>
-                <h3 className="text-base font-black text-white">{planDetails.planTitle}</h3>
-              </div>
-              <div className="text-right">
-                <span className="text-[10px] text-slate-400 block">One-Time Fee</span>
-                <span className="text-xl font-black text-[#F2B90C]">PKR {planDetails.fee}</span>
-              </div>
-            </div>
-
-            <div className="space-y-1.5 text-xs text-slate-300">
-              {planDetails.features.map((ft, i) => (
-                <div key={i} className="flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                  <span>{ft}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Payment Account Options */}
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-black text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-                <CreditCard className="w-4 h-4 text-amber-500" />
-                <span>Send Payment to Any of These Accounts:</span>
-              </span>
-              <span className="text-[10px] font-bold text-slate-400">Click number to copy</span>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-              {PAYMENT_ACCOUNTS.map((acc) => (
-                <div
-                  key={acc.id}
-                  className={`p-3 rounded-2xl border ${acc.border} ${acc.bg} space-y-1 relative`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-black text-slate-900 dark:text-white">
-                      {acc.name}
+          {/* CHOICE A: PAID / PRO PLAN FLOW */}
+          {selectedPlanChoice === 'paid' && (
+            <div className="space-y-6">
+              {/* Single Relevant Fee Challan Card */}
+              <div className="bg-gradient-to-br from-slate-900 to-[#141414] text-white p-5 rounded-2xl border-2 border-amber-500/50 shadow-xl space-y-4">
+                <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                  <div>
+                    <span className="text-[10px] font-black uppercase tracking-wider text-amber-400">
+                      Official Track Fee Challan
                     </span>
-                    <span className="text-[9px] font-extrabold px-2 py-0.5 rounded-full bg-black/10 dark:bg-white/10 text-slate-700 dark:text-slate-300">
-                      {acc.badge}
-                    </span>
+                    <h3 className="text-base font-black text-white">{planDetails.planTitle}</h3>
                   </div>
-                  <div className="flex items-center justify-between pt-1">
-                    <div>
-                      <div className="font-mono text-xs font-black text-amber-600 dark:text-amber-400">
-                        {acc.number}
+                  <div className="text-right">
+                    <span className="text-[10px] text-slate-400 block">One-Time Fee</span>
+                    <span className="text-xl font-black text-[#F2B90C]">PKR {planDetails.fee}</span>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5 text-xs text-slate-300">
+                  {planDetails.features.map((ft, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <span>{ft}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Payment Account Options */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-black text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                    <CreditCard className="w-4 h-4 text-amber-500" />
+                    <span>Send Payment to Any of These Accounts:</span>
+                  </span>
+                  <span className="text-[10px] font-bold text-slate-400">Click number to copy</span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  {PAYMENT_ACCOUNTS.map((acc) => (
+                    <div
+                      key={acc.id}
+                      className={`p-3 rounded-2xl border ${acc.border} ${acc.bg} space-y-1 relative`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-black text-slate-900 dark:text-white">
+                          {acc.name}
+                        </span>
+                        <span className="text-[9px] font-extrabold px-2 py-0.5 rounded-full bg-black/10 dark:bg-white/10 text-slate-700 dark:text-slate-300">
+                          {acc.badge}
+                        </span>
                       </div>
-                      <div className="text-[10px] text-slate-500 dark:text-slate-400">
-                        Title: {acc.title}
+                      <div className="flex items-center justify-between pt-1">
+                        <div>
+                          <div className="font-mono text-xs font-black text-amber-600 dark:text-amber-400">
+                            {acc.number}
+                          </div>
+                          <div className="text-[10px] text-slate-500 dark:text-slate-400">
+                            Title: {acc.title}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleCopy(acc.number, acc.id)}
+                          className="p-1.5 rounded-lg bg-white dark:bg-zinc-800 border border-slate-200 dark:border-white/10 hover:border-amber-500 text-slate-600 dark:text-slate-300 text-[10px] font-bold cursor-pointer flex items-center gap-1"
+                        >
+                          {copiedId === acc.id ? (
+                            <Check className="w-3.5 h-3.5 text-emerald-500" />
+                          ) : (
+                            <Copy className="w-3.5 h-3.5" />
+                          )}
+                        </button>
                       </div>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => handleCopy(acc.number, acc.id)}
-                      className="p-1.5 rounded-lg bg-white dark:bg-zinc-800 border border-slate-200 dark:border-white/10 hover:border-amber-500 text-slate-600 dark:text-slate-300 text-[10px] font-bold cursor-pointer flex items-center gap-1"
-                    >
-                      {copiedId === acc.id ? (
-                        <Check className="w-3.5 h-3.5 text-emerald-500" />
-                      ) : (
-                        <Copy className="w-3.5 h-3.5" />
-                      )}
-                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Action Button */}
+              <button
+                type="button"
+                onClick={() => setCurrentStep(5)}
+                className="w-full bg-[#F2B90C] hover:bg-[#d9a50a] text-[#0A0A0A] font-black py-3.5 px-6 rounded-full transition-all cursor-pointer text-xs sm:text-sm shadow-md flex items-center justify-center gap-2 mt-4"
+              >
+                <span>Proceed to Step 5: Submit Payment Proof</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
+          {/* CHOICE B: FREE TRIAL FLOW */}
+          {selectedPlanChoice === 'trial' && (
+            <div className="space-y-6">
+              <div className="p-5 rounded-2xl bg-emerald-500/10 border-2 border-emerald-500/40 text-emerald-950 dark:text-emerald-100 space-y-3">
+                <div className="flex items-center gap-2 font-black text-sm text-emerald-700 dark:text-emerald-300">
+                  <Sparkles className="w-5 h-5 text-emerald-500 shrink-0" />
+                  <span>Immediate Free Trial Access</span>
+                </div>
+                <p className="text-xs text-slate-700 dark:text-emerald-200/90 leading-relaxed font-medium">
+                  Skip fee proof requirements for now and start practicing right away! Free trial includes up to 2 practice test attempts per month with full subject access.
+                </p>
+                <div className="bg-white/70 dark:bg-black/30 p-3.5 rounded-xl border border-emerald-500/20 text-[11px] font-semibold space-y-1.5 text-slate-800 dark:text-slate-200">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                    <span>No credit card or payment proof required to begin</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                    <span>Access topic-wise MCQs & instant answer explanations</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                    <span>Upgrade to Pro anytime from your dashboard</span>
                   </div>
                 </div>
-              ))}
-            </div>
-          </div>
+              </div>
 
-          {/* Action Button */}
-          <button
-            type="button"
-            onClick={() => setCurrentStep(5)}
-            className="w-full bg-[#F2B90C] hover:bg-[#d9a50a] text-[#0A0A0A] font-black py-3.5 px-6 rounded-full transition-all cursor-pointer text-xs sm:text-sm shadow-md flex items-center justify-center gap-2 mt-4"
-          >
-            <span>Proceed to Step 5: Submit Payment Proof</span>
-            <ArrowRight className="w-4 h-4" />
-          </button>
+              {error && (
+                <div className="p-3.5 rounded-xl bg-red-500/10 border border-red-500/30 text-red-600 dark:text-red-400 text-xs font-bold flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{error}</span>
+                </div>
+              )}
+
+              <button
+                type="button"
+                disabled={isSubmitting}
+                onClick={handleStartFreeTrial}
+                className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-black py-4 px-6 rounded-full transition-all cursor-pointer text-xs sm:text-sm shadow-lg flex items-center justify-center gap-2 disabled:opacity-60"
+              >
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Activating Free Trial...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>Start Free Trial Now</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </>
+                )}
+              </button>
+            </div>
+          )}
         </motion.div>
       )}
 
@@ -1258,6 +1492,13 @@ export const StudentRegistrationFlow: React.FC<StudentRegistrationFlowProps> = (
             </ol>
           </div>
 
+          {error && (
+            <div className="p-3.5 rounded-xl bg-red-500/10 border border-red-500/30 text-red-600 dark:text-red-400 text-xs font-bold flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
+
           {/* Submit Button */}
           <button
             type="submit"
@@ -1286,70 +1527,117 @@ export const StudentRegistrationFlow: React.FC<StudentRegistrationFlowProps> = (
         <motion.div
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
-          className="bg-white dark:bg-[#1C1C1E] border border-slate-200/80 dark:border-white/10 rounded-3xl p-8 text-center space-y-6 shadow-2xl"
+          className="bg-white dark:bg-[#1C1C1E] border border-slate-200/80 dark:border-white/10 rounded-3xl p-6 sm:p-8 text-center space-y-6 shadow-2xl"
         >
-          <div className="w-16 h-16 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-500 flex items-center justify-center mx-auto shadow-lg">
-            <CheckCircle2 className="w-10 h-10" />
-          </div>
+          {completedMode === 'trial' ? (
+            <>
+              <div className="w-16 h-16 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-500 flex items-center justify-center mx-auto shadow-lg">
+                <Sparkles className="w-9 h-9" />
+              </div>
 
-          <div className="space-y-2">
-            <span className="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20">
-              Registration Saved & WhatsApp Direct Verification
-            </span>
-            <h2 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white">
-              You are All Set, {fullName}!
-            </h2>
-            <p className="text-xs text-slate-600 dark:text-slate-300 max-w-md mx-auto leading-relaxed">
-              Your payment reference <strong>{transactionRef}</strong> has been saved. If WhatsApp did not open automatically, tap below to send your payment proof screenshot to <strong>+923222314436</strong>.
-            </p>
-          </div>
+              <div className="space-y-2">
+                <span className="px-3.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20">
+                  Free Trial Active
+                </span>
+                <h2 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white">
+                  You're in! Your free trial is active.
+                </h2>
+                <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 max-w-md mx-auto leading-relaxed font-medium">
+                  Upgrade anytime to unlock full access — admin will reach out if you'd like to move to the Pro plan.
+                </p>
+              </div>
 
-          <div className="p-4 rounded-2xl bg-slate-50 dark:bg-zinc-900 text-left text-xs space-y-2 border border-slate-200 dark:border-white/10">
-            <div className="font-extrabold text-slate-800 dark:text-slate-200">
-              Registration Summary:
-            </div>
-            <div className="text-slate-600 dark:text-slate-400 space-y-1 text-[11px]">
-              <div>• Track: {selectedTrack === 'FBISE' ? `FBISE ${fbiseGrade}` : selectedTrack === 'MDCAT' ? 'MDCAT' : `TCAT (${tcatGroup})`}</div>
-              <div>• Dream Institution: {dreamUniversity === 'Other' ? customUniversity : dreamUniversity}</div>
-              <div>• Transaction Reference: <span className="font-mono font-bold text-amber-500">{transactionRef}</span></div>
-            </div>
-          </div>
+              <div className="p-4 rounded-2xl bg-slate-50 dark:bg-zinc-900 text-left text-xs space-y-2 border border-slate-200 dark:border-white/10">
+                <div className="font-extrabold text-slate-800 dark:text-slate-200 flex items-center justify-between">
+                  <span>Registration Summary:</span>
+                  <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 rounded-full">Trial Status</span>
+                </div>
+                <div className="text-slate-600 dark:text-slate-400 space-y-1 text-[11px]">
+                  <div>• Student Name: <strong className="text-slate-900 dark:text-white">{fullName}</strong> ({email})</div>
+                  <div>• Track: <strong>{selectedTrack === 'FBISE' ? `FBISE ${fbiseGrade}` : selectedTrack === 'MDCAT' ? 'MDCAT' : `TCAT (${tcatGroup})`}</strong></div>
+                  <div>• Target Institution: <strong>{dreamUniversity === 'Other' ? customUniversity : dreamUniversity}</strong></div>
+                </div>
+              </div>
 
-          <div className="flex flex-col gap-3 pt-2">
-            <a
-              href={`https://wa.me/923222314436?text=${encodeURIComponent(
-                `Hi, here's my payment proof.\nName: ${fullName.trim()}\nEmail: ${email.trim()}\nTransaction ID: ${transactionRef.trim()}\nScreenshot attached.`
-              )}`}
-              target="_blank"
-              rel="noreferrer"
-              className="w-full bg-[#25D366] hover:bg-[#1eae50] text-white font-black py-3.5 px-5 rounded-full text-xs sm:text-sm transition-all cursor-pointer shadow-md flex items-center justify-center gap-2"
-            >
-              <MessageSquare className="w-4 h-4" />
-              <span>Open WhatsApp to Attach Payment Screenshot</span>
-            </a>
-
-            <div className="flex flex-col sm:flex-row gap-3">
               <button
                 type="button"
                 onClick={() => {
-                  if (onSkipToPractice) onSkipToPractice();
+                  if (savedProfileResult && onRegistrationComplete) {
+                    onRegistrationComplete(savedProfileResult);
+                  } else if (onSkipToPractice) {
+                    onSkipToPractice();
+                  }
                 }}
-                className="flex-1 bg-[#F2B90C] hover:bg-[#d9a50a] text-[#0A0A0A] font-black py-3 px-5 rounded-full text-xs transition-all cursor-pointer shadow-md flex items-center justify-center gap-2"
+                className="w-full bg-[#F2B90C] hover:bg-[#d9a50a] text-[#0A0A0A] font-black py-4 px-6 rounded-full text-xs sm:text-sm transition-all cursor-pointer shadow-lg flex items-center justify-center gap-2"
               >
-                <span>Start Free Practice Now</span>
+                <span>Go to Dashboard</span>
                 <ArrowRight className="w-4 h-4" />
               </button>
-              <a
-                href="https://chat.whatsapp.com/DKA260XqH9f85G2f6n3Y6L"
-                target="_blank"
-                rel="noreferrer"
-                className="flex-1 bg-emerald-700 hover:bg-emerald-800 text-white font-extrabold py-3 px-5 rounded-full text-xs transition-all cursor-pointer shadow-md flex items-center justify-center gap-2"
-              >
-                <span>Join Student Community Group</span>
-                <ExternalLink className="w-4 h-4" />
-              </a>
-            </div>
-          </div>
+            </>
+          ) : (
+            <>
+              <div className="w-16 h-16 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-500 flex items-center justify-center mx-auto shadow-lg">
+                <CheckCircle2 className="w-10 h-10 text-emerald-500" />
+              </div>
+
+              <div className="space-y-2">
+                <span className="px-3.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20">
+                  Payment Proof Submitted
+                </span>
+                <h2 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white">
+                  Thanks! Your payment proof has been submitted.
+                </h2>
+                <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 max-w-md mx-auto leading-relaxed font-medium">
+                  Admin will verify it shortly and unlock your full Pro access.
+                </p>
+                <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-900 dark:text-amber-200 font-semibold max-w-md mx-auto">
+                  Note: You can still use free-trial-tier features while waiting for verification.
+                </div>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-slate-50 dark:bg-zinc-900 text-left text-xs space-y-2 border border-slate-200 dark:border-white/10">
+                <div className="font-extrabold text-slate-800 dark:text-slate-200 flex items-center justify-between">
+                  <span>Submitted Details:</span>
+                  <span className="text-[10px] text-amber-600 dark:text-amber-400 font-bold bg-amber-500/10 px-2 py-0.5 rounded-full">Pending Verification</span>
+                </div>
+                <div className="text-slate-600 dark:text-slate-400 space-y-1 text-[11px]">
+                  <div>• Student: <strong className="text-slate-900 dark:text-white">{fullName}</strong></div>
+                  <div>• Track: <strong>{selectedTrack === 'FBISE' ? `FBISE ${fbiseGrade}` : selectedTrack === 'MDCAT' ? 'MDCAT' : `TCAT (${tcatGroup})`}</strong></div>
+                  <div>• Target Institution: <strong>{dreamUniversity === 'Other' ? customUniversity : dreamUniversity}</strong></div>
+                  <div>• TRX Ref: <span className="font-mono font-bold text-amber-500">{transactionRef}</span> ({selectedMethod})</div>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-3 pt-2">
+                <a
+                  href={`https://wa.me/923222314436?text=${encodeURIComponent(
+                    `Hi, here's my payment proof.\nName: ${fullName.trim()}\nEmail: ${email.trim()}\nTransaction ID: ${transactionRef.trim()}\nScreenshot attached.`
+                  )}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="w-full bg-[#25D366] hover:bg-[#1eae50] text-white font-black py-3.5 px-5 rounded-full text-xs sm:text-sm transition-all cursor-pointer shadow-md flex items-center justify-center gap-2"
+                >
+                  <MessageSquare className="w-4 h-4" />
+                  <span>Open WhatsApp to Attach Payment Screenshot</span>
+                </a>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (savedProfileResult && onRegistrationComplete) {
+                      onRegistrationComplete(savedProfileResult);
+                    } else if (onSkipToPractice) {
+                      onSkipToPractice();
+                    }
+                  }}
+                  className="w-full bg-[#F2B90C] hover:bg-[#d9a50a] text-[#0A0A0A] font-black py-4 px-6 rounded-full text-xs sm:text-sm transition-all cursor-pointer shadow-lg flex items-center justify-center gap-2"
+                >
+                  <span>Go to Dashboard</span>
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+              </div>
+            </>
+          )}
         </motion.div>
       )}
     </div>
